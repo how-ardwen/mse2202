@@ -24,5 +24,5 @@
   - Implement code to get sensors to trigger servo motor. During testing phase, if green, servo turns left, if not green, servo turns right
 
 - [ ] Finalize Sorting System
-  - Refine servo motor timing
+  - Finishin implementing code into robot, refine servo motor timing as well
   - Implement code for final deposit into collection container
