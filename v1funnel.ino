@@ -28,6 +28,9 @@ struct Encoder {
 #define ENCODER_LEFT_B      16                                                 // left encoder B signal is connected to pin 8 GPIO16 (J16)
 #define ENCODER_RIGHT_A     11                                                 // right encoder A signal is connected to pin 19 GPIO11 (J11)
 #define ENCODER_RIGHT_B     12                                                 // right encoder B signal is connected to pin 20 GPIO12 (J12)
+  // sensors
+#define USENSOR_TRIG        39                                                 // ultrasonic sensor trigger pin
+#define USENSOR_ECHO        40                                                 // ultrasonic sensor echo pin
   // inputs
 #define PUSH_BUTTON         0                                                  // push button pin number
   // LEDs
@@ -60,10 +63,16 @@ int robotStage;                                                                /
 unsigned long prevTime;                                                        // previous time for arduino
 unsigned long currTime;                                                        // current time for arduino
 unsigned int timeDiff;                                                         // difference between current and previous time
+// int fiveHundredMSCounter                                                       // count for 500 ms
+// bool fiveHundredMSPassed;                                                      // 500 ms passed flag
 int oneSecondCounter;                                                          // count for 1 second
 bool oneSecondPassed;                                                          // 1 second passed flag
 int twoSecondCounter;                                                          // count for 2 second
 bool twoSecondPassed;                                                          // 2 second passed flag
+  // ultrasonic detector variables
+float usDuration;                                                              // ultrasonic sensor duration (us)
+float usDistance;                                                              // ultrasonic sensor distance (cm)
+int usMode;                                                                    // track ultrasonic sensor mode (0 is stopped, 1 is sending, 2 is receiving)
 
 void setup() {
   // put your setup code here, to run once:
@@ -82,14 +91,20 @@ void setup() {
     attachInterruptArg(encoder[k].chanA, encoderISR, &encoder[k], RISING);
   }
 
+  // set up ultrasonic sensor
+  pinMode(USENSOR_TRIG, OUTPUT);
+  pinMode(USENSOR_ECHO, INPUT);
+
   // set up push button
   pinMode(PUSH_BUTTON, INPUT_PULLUP);
 
-  // declare drive speed
-  driveSpeed = 200;
   // declare previous time as 0 and current time as 0
   prevTime = 0;
   currTime = 0;
+  // declare drive speed
+  driveSpeed = 200;
+  // declare us mode
+  usMode = 0;
 
   // Set up SmartLED
   SmartLEDs.begin();                                                          // initialize smart LEDs object (REQUIRED)
@@ -100,17 +115,23 @@ void setup() {
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-
   // get current time in microseconds (us)
   currTime = micros();
   timeDiff = currTime - prevTime;
+
+  // ultrasonic code
+  digitalWrite(USENSOR_TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(USENSOR_TRIG, LOW);
+  usDuration = pulseIn(USENSOR_ECHO, HIGH);
+  usDistance = 0.017 * usDuration;                                                      // calculate distance
+  Serial.printf("Distance: %.2fcm\n", usDistance);
 
   // if past loop time is 1ms less than current loop time 
   if (timeDiff >= 1000) {
     // update previous time
     prevTime = currTime;
-    
+
     // increment 1 second timer
     oneSecondCounter = oneSecondCounter + timeDiff/1000;
     // check to see if one second has passed
@@ -156,22 +177,27 @@ void loop() {
     }
   }
 
-  if (robotStage == 2 && (encoder[0].pos > 5000 || encoder[0].pos < -5000)) {
-    Serial.println("Robot has reached distance, stopping");
+  if (robotStage == 2 && usDistance > 1 && usDistance < 5) {
+    Serial.println("Robot has encountered obstacle, stopping");
     robotStage = 0;
     encoder[0].pos = 0;
-  }
-
-  if (robotStage == 0 && twoSecondPassed) {
-    Serial.println("stopping motors!");
     // start the motors to stop
     setMotor(0, 0, cINChanA[0], cINChanB[0]);
     setMotor(0, 0, cINChanA[1], cINChanB[1]);
   }
 
+  // if (robotStage == 0 && twoSecondPassed) {
+  //   Serial.println("stopping motors!");
+  //   // start the motors to stop
+  //   setMotor(0, 0, cINChanA[0], cINChanB[0]);
+  //   setMotor(0, 0, cINChanA[1], cINChanB[1]);
+  // }
+
   // clear time passed flags
   oneSecondPassed = false;
   twoSecondPassed = false;
+
+  delay(1000);
 }
 
 // motor function
