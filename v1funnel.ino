@@ -28,9 +28,14 @@ struct Encoder {
 #define ENCODER_LEFT_B      16                                                 // left encoder B signal is connected to pin 8 GPIO16 (J16)
 #define ENCODER_RIGHT_A     11                                                 // right encoder A signal is connected to pin 19 GPIO11 (J11)
 #define ENCODER_RIGHT_B     12                                                 // right encoder B signal is connected to pin 20 GPIO12 (J12)
+#define WINDMILL_MOTOR_PIN  8                                                  // windmill motor pin
+#define WINDMILL_MOTOR_CHAN 5                                                  // windmill motor channel
   // sensors
 #define USENSOR_TRIG        39                                                 // ultrasonic sensor trigger pin
 #define USENSOR_ECHO        40                                                 // ultrasonic sensor echo pin
+  // servos
+#define SERVO_DEPOSIT_PIN   41                                                 // deposit servo motor
+#define SERVO_DEPOSIT_CHAN  4                                                  // deposit servo motor channel
   // inputs
 #define PUSH_BUTTON         0                                                  // push button pin number
   // LEDs
@@ -39,6 +44,10 @@ struct Encoder {
 
 
 // constants
+const int cDepositStore = 24;                                                  // deposit storing value (24/255 = 20%)
+const int cDepositDump = 30;                                                  // deposit dumping value (30/255 = 9%)
+const int cServoPWMfreq = 50;                                                  // servo frequency
+const int cServoPWMRes = 8;                                                    // servo resolution
 const int cPWMFreq = 20000;                                                    // PWM frequency
 const int cPWMRes = 8;                                                         // PWM resolution
 // TO DO - change cPWMMin
@@ -53,6 +62,7 @@ const int cINChanB[] = {2,3};                                                  /
 
 Encoder encoder[] = {{ENCODER_LEFT_A, ENCODER_LEFT_B, 0},
                      {ENCODER_RIGHT_A, ENCODER_RIGHT_B, 0}};                   // left and right encoder structures initialized with position 0
+
 Adafruit_NeoPixel SmartLEDs(SMART_LED_COUNT, SMART_LED, NEO_RGB + NEO_KHZ800); // LED
 
 // variables
@@ -63,8 +73,7 @@ int robotStage;                                                                /
 unsigned long prevTime;                                                        // previous time for arduino
 unsigned long currTime;                                                        // current time for arduino
 unsigned int timeDiff;                                                         // difference between current and previous time
-// int fiveHundredMSCounter                                                       // count for 500 ms
-// bool fiveHundredMSPassed;                                                      // 500 ms passed flag
+int msCounter;                                                                 // count for ms
 int oneSecondCounter;                                                          // count for 1 second
 bool oneSecondPassed;                                                          // 1 second passed flag
 int twoSecondCounter;                                                          // count for 2 second
@@ -85,15 +94,25 @@ void setup() {
     ledcAttachPin(cINPinB[k], cINChanB[k]);                                     // set up L/R motor B pin and set to corresponding channel {2,3}
     ledcSetup(cINChanB[k], cPWMFreq, cPWMRes);                                  // set up channel with PWM freq and resolution
 
-    pinMode(encoder[k].chanA, INPUT);                                        // configure GPIO for encoder channel A input
-    pinMode(encoder[k].chanB, INPUT);                                        // configure GPIO for encoder channel B input
+    pinMode(encoder[k].chanA, INPUT);                                           // configure GPIO for encoder channel A input
+    pinMode(encoder[k].chanB, INPUT);                                           // configure GPIO for encoder channel B input
     // configure encoder to trigger interrupt with each rising edge on channel A
     attachInterruptArg(encoder[k].chanA, encoderISR, &encoder[k], RISING);
   }
 
+  // set up windmill motor
+  ledcAttachPin(WINDMILL_MOTOR_PIN, WINDMILL_MOTOR_CHAN);
+  ledcSetup(WINDMILL_MOTOR_CHAN, cPWMFreq, cPWMRes);                                  // set up channel with PWM freq and resolution
+  // pinMode(WINDMILL_MOTOR, OUTPUT);
+
   // set up ultrasonic sensor
   pinMode(USENSOR_TRIG, OUTPUT);
   pinMode(USENSOR_ECHO, INPUT);
+
+  // set up servo pins
+  ledcAttachPin(SERVO_DEPOSIT_PIN, SERVO_DEPOSIT_CHAN);                          // set up servo motor and channel
+  ledcSetup(SERVO_DEPOSIT_CHAN, cServoPWMfreq, cServoPWMRes);                    // set up channel with PWM freq and resolution
+  ledcWrite(SERVO_DEPOSIT_CHAN, cDepositStore);
 
   // set up push button
   pinMode(PUSH_BUTTON, INPUT_PULLUP);
@@ -119,18 +138,13 @@ void loop() {
   currTime = micros();
   timeDiff = currTime - prevTime;
 
-  // ultrasonic code
-  digitalWrite(USENSOR_TRIG, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(USENSOR_TRIG, LOW);
-  usDuration = pulseIn(USENSOR_ECHO, HIGH);
-  usDistance = 0.017 * usDuration;                                                      // calculate distance
-  Serial.printf("Distance: %.2fcm\n", usDistance);
-
   // if past loop time is 1ms less than current loop time 
   if (timeDiff >= 1000) {
     // update previous time
     prevTime = currTime;
+
+    // increment ms counter
+    msCounter = msCounter + 1;
 
     // increment 1 second timer
     oneSecondCounter = oneSecondCounter + timeDiff/1000;
@@ -153,6 +167,17 @@ void loop() {
       twoSecondCounter = 0;
     }
   }
+  
+  // if milisecond counter is a multiple of 500 (i.e. every 500ms, ping ultrasonic detector)
+  if (msCounter % 500 == 0) {
+    // ultrasonic code
+    digitalWrite(USENSOR_TRIG, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(USENSOR_TRIG, LOW);
+    usDuration = pulseIn(USENSOR_ECHO, HIGH);
+    usDistance = 0.017 * usDuration;                                                      // calculate distance
+    Serial.printf("Distance: %.2fcm\n", usDistance);
+  }
 
   // if push button is pressed and robot is currently stopped
   if (!digitalRead(PUSH_BUTTON) && robotStage == 0) {
@@ -163,6 +188,10 @@ void loop() {
     twoSecondPassed = false;
     twoSecondCounter = 0;
 
+    ledcWrite(SERVO_DEPOSIT_CHAN, cDepositDump);
+    Serial.printf("Set servo to %d\n", ledcRead(SERVO_DEPOSIT_CHAN));
+    
+    ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);                                                    // turn on windmill motor
   }
 
   // if robot is in stage 1 (driving)
