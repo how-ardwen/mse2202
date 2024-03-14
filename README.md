@@ -6,7 +6,7 @@
   - Create GitHub, invite everyone as collaborators
   - Start Arduino code and establish enough to get the robot moving forwards
 
-- [ ] Ultrasonic Sensor Testing and Implementation
+- [X] Ultrasonic Sensor Testing and Implementation
   - Test and record ultrasonic sensor behaviour
   - Physically add sensors to robot
   - Implement code to get robot to stop once sensors detect something _x_ distance away
@@ -19,10 +19,11 @@
   - Get robot sweeping an area without colliding into anything and then returning to IR beacon once finished
   - Get containment raising arm spinning
 
-- [ ] Pigmentation Sensor Testing and Implementation
+- [x] Pigmentation Sensor Testing and Implementation
   - Test and record pigmentation behavior
-  - Implement code to get sensors to trigger servo motor. During testing phase, if green, servo turns left, if not green, servo turns right
+  - Get LED to shine whatever color the pigment sensor detects 
 
 - [ ] Finalize Sorting System
-  - Finishin implementing code into robot, refine servo motor timing as well
+  - Implement code to get sensors to trigger servo motor. During testing phase, if green, servo turns left, if not green, servo turns right
+  - Finish implementing code into robot, refine servo motor timing as well
   - Implement code for final deposit into collection container
