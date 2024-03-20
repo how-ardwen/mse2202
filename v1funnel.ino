@@ -4,12 +4,18 @@ March 7th, 2024
 Howard Wen
 */
 
-// library
-#include <Adafruit_NeoPixel.h>
+// libraries
+#include <Adafruit_NeoPixel.h>                                                 // LED library
+#include <Wire.h>                                                              // wire library for I2C
+#include "Adafruit_TCS34725.h"                                                 // color sensor library
+
+// debug
+// #define DEBUG_COLOR                                                            // debug color sensors
 
 // function compile declarations
 void setMotor(int dir, int pwm, int chanA, int chanB);
 void ARDUINO_ISR_ATTR encoderISR(void* arg);
+void ARDUINO_ISR_ATTR buttonISR();
 
 // structures
 struct Encoder {
@@ -30,43 +36,59 @@ struct Encoder {
 #define ENCODER_RIGHT_B     12                                                 // right encoder B signal is connected to pin 20 GPIO12 (J12)
 #define WINDMILL_MOTOR_PIN  8                                                  // windmill motor pin
 #define WINDMILL_MOTOR_CHAN 4                                                  // windmill motor channel
-  // sensors
+  // ultrasonic sensor
 #define USENSOR_TRIG        39                                                 // ultrasonic sensor trigger pin
 #define USENSOR_ECHO        40                                                 // ultrasonic sensor echo pin
+  // color sensor (TCS34725)
+#define SDA                 47                                                 // I2C data pin
+#define SCL                 48                                                 // I2C clock pin
+#define TCSLED              14                                                 // color sensor LED
   // servos
-#define SERVO_DEPOSIT_PIN   41                                                 // deposit servo motor
+#define SERVO_DEPOSIT_PIN   41                                                 // deposit servo motor pin
 #define SERVO_DEPOSIT_CHAN  5                                                  // deposit servo motor channel
+#define SERVO_SORT_PIN      42                                                 // sort servo motor pin
+#define SERVO_SORT_CHAN     6                                                  // sort servo motor channel
   // inputs
 #define PUSH_BUTTON         0                                                  // push button pin number
+#define DEBOUNCE            250                                                // push button debounce
   // LEDs
 #define SMART_LED           21                                                 // when DIP Switch S1-4 is on, Smart LED is connected to pin 23 GPIO21 (J21)
 #define SMART_LED_COUNT     1                                                  // number of SMART LEDs in use
 
-
 // constants
-const int cDepositStore = 500;                                                 // deposit storing value (14/255 = 5.5%)
-const int cDepositDump = 2000;                                                 // deposit dumping value (30/255 = 12%)
-const int cServoPWMfreq = 50;                                                  // servo frequency Hz
+  // servos
+const int cDepositStore = 2000;                                                // deposit storing value (2000/16383 = 12.2%)
+const int cDepositDump = 1250;                                                 // deposit dumping value (1250/16383 = 7.6%)
+const int cSortGreen = 400;                                                    // sorting value if green
+const int cSortNotGreen = 625;                                                 // sorting value if not green
+const int cSortMiddle = 500;                                                   // sorting value to test gem color
+const int cServoPWMfreq = 50;                                                  // servo frequency
 const int cServoPWMRes = 14;                                                   // servo resolution
+  // motors
 const int cPWMFreq = 20000;                                                    // PWM frequency
 const int cPWMRes = 8;                                                         // PWM resolution
 // TO DO - change cPWMMin
 const int cPWMMin = pow(2, 8)/4;                                               // min PWM (quarter) ARBITRARY
 const int cPWMMax = pow(2, 8) - 1;                                             // max PWM (full bar)
-
 const int cNumMotors = 2;                                                      // number of motors
 const int cINPinA[] = {LEFT_MOTOR_A, RIGHT_MOTOR_A};                           // left and right motor A pins
 const int cINChanA[] = {0,1};                                                  // left and right motor A ledc channels
 const int cINPinB[] = {LEFT_MOTOR_B, RIGHT_MOTOR_B};                           // left and right motor B pins
 const int cINChanB[] = {2,3};                                                  // left and right motor B ledc channels
 
+// objects
+  // left and right encoder structures initialized with position 0
 Encoder encoder[] = {{ENCODER_LEFT_A, ENCODER_LEFT_B, 0},
-                     {ENCODER_RIGHT_A, ENCODER_RIGHT_B, 0}};                   // left and right encoder structures initialized with position 0
+                     {ENCODER_RIGHT_A, ENCODER_RIGHT_B, 0}};
 
-Adafruit_NeoPixel SmartLEDs(SMART_LED_COUNT, SMART_LED, NEO_RGB + NEO_KHZ800); // LED
+  // initialize smart LED object
+Adafruit_NeoPixel SmartLEDs(SMART_LED_COUNT, SMART_LED, NEO_RGB + NEO_KHZ800); // smart LED
+
+  // initialize TCS object with 2.4ms integration and gain of 4
+Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_2_4MS, TCS34725_GAIN_16X);
+bool tcsFlag = false;
 
 // variables
-int pbDebounce;                                                                // debounce timer for push button
 int driveSpeed;                                                                // speed for motor
 int robotStage;                                                                // tracks robot stage: 0 = stop, 1 = driving
   // time variables
@@ -82,8 +104,14 @@ bool twoSecondPassed;                                                          /
 float usDuration;                                                              // ultrasonic sensor duration (us)
 float usDistance;                                                              // ultrasonic sensor distance (cm)
 int usMode;                                                                    // track ultrasonic sensor mode (0 is stopped, 1 is sending, 2 is receiving)
-  // servo
-int servoPos = cDepositStore;
+  // push button debounce
+volatile unsigned long buttonTime = 0;                                         // track button pressed time
+volatile unsigned long lastButtonTime = 0;                                     // track prev button pressed time
+uint32_t numberPresses = 0;                                                    // track # of times pressed
+bool pressed = false;                                                          // button flag
+  // color sensor
+bool isGreen;                                                                  // track whether current gem is green
+bool prevGreen = false;                                                        // track whether prev test had a green gem
 
 void setup() {
   // put your setup code here, to run once:
@@ -103,22 +131,41 @@ void setup() {
   }
 
   // set up windmill motor
-  ledcAttachPin(WINDMILL_MOTOR_PIN, WINDMILL_MOTOR_CHAN);
-  ledcSetup(WINDMILL_MOTOR_CHAN, cPWMFreq, cPWMRes);                                  // set up channel with PWM freq and resolution
-  // pinMode(WINDMILL_MOTOR_PIN, OUTPUT);
+  pinMode(WINDMILL_MOTOR_PIN, OUTPUT);                                           // set up motor pin output
+  ledcAttachPin(WINDMILL_MOTOR_PIN, WINDMILL_MOTOR_CHAN);                        // set up pin and channel
+  ledcSetup(WINDMILL_MOTOR_CHAN, cPWMFreq, cPWMRes);                             // set up channel with PWM freq and resolution
 
   // set up ultrasonic sensor
   pinMode(USENSOR_TRIG, OUTPUT);
   pinMode(USENSOR_ECHO, INPUT);
 
-  // set up servo pins
+  // set up tcs color sensor
+  Wire.setPins(SDA, SCL);                                                        // set up i2c pins
+  pinMode(TCSLED, OUTPUT);                                                       // set tcs LED as an output pin
+  digitalWrite(TCSLED, HIGH);
+  if (tcs.begin()) {
+    Serial.println("TCS connection found");
+    tcsFlag = true;
+  } else {
+    Serial.println("TCS connection not found, try again");
+    tcsFlag = false;
+  }
+
+  // set up sorting servo pins
+  pinMode(SERVO_SORT_PIN, OUTPUT);                                               // set up sorting servo motor pin
+  ledcAttachPin(SERVO_SORT_PIN, SERVO_SORT_CHAN);                                // set up sorting servo motor channel
+  ledcSetup(SERVO_SORT_CHAN, cServoPWMfreq, cServoPWMRes);                       // set up channel with PWM freq and resolution
+  ledcWrite(SERVO_SORT_CHAN, cSortMiddle);                                       // move sorting arm to middle
+
+  // set up deposit servo pins
   pinMode(SERVO_DEPOSIT_PIN, OUTPUT);                                            // set up servo motor pin
   ledcAttachPin(SERVO_DEPOSIT_PIN, SERVO_DEPOSIT_CHAN);                          // set up servo motor channel
   ledcSetup(SERVO_DEPOSIT_CHAN, cServoPWMfreq, cServoPWMRes);                    // set up channel with PWM freq and resolution
-  ledcWrite(SERVO_DEPOSIT_CHAN, cDepositStore);
+  ledcWrite(SERVO_DEPOSIT_CHAN, cDepositStore);                                  // move deposit bin to storage position
 
   // set up push button
   pinMode(PUSH_BUTTON, INPUT_PULLUP);
+  attachInterrupt(PUSH_BUTTON, buttonISR, FALLING);
 
   // declare previous time as 0 and current time as 0
   prevTime = 0;
@@ -131,7 +178,7 @@ void setup() {
   // Set up SmartLED
   SmartLEDs.begin();                                                          // initialize smart LEDs object (REQUIRED)
   SmartLEDs.clear();                                                          // clear pixel
-  SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,255,0));                        // set pixel colors to 'off'
+  SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,255,0));                        // set pixel colors to green
   SmartLEDs.setBrightness(15);                                                // set brightness of heartbeat LED
   SmartLEDs.show();                                                           // send the updated pixel colors to the hardware
 }
@@ -173,10 +220,6 @@ void loop() {
   
   // if milisecond counter is a multiple of 500 (i.e. every 500ms, ping ultrasonic detector)
   if (msCounter % 500 == 0) {
-    // if (servoPos < cDepositDump) {
-    //   servoPos++;
-    //   ledcWrite(SERVO_DEPOSIT_CHAN, servoPos);
-    // }
     // ultrasonic code
     digitalWrite(USENSOR_TRIG, HIGH);
     delayMicroseconds(10);
@@ -186,8 +229,33 @@ void loop() {
     Serial.printf("Distance: %.2fcm\n", usDistance);
   }
 
+  // every 250ms
+  if (msCounter % 250 == 0) {
+    // if tcs is on and previous gem wasn't green, test color
+    if (tcsFlag && !prevGreen) {
+      uint16_t r, g, b, c;                                                        // RGBC values from TCS
+      tcs.getRawData(&r, &g, &b, &c);
+      #ifdef DEBUG_COLOR
+      Serial.printf("R: %d, G: %d, B: %d, C: %d\n", r, g, b, c);
+      #endif
+      isGreen = g > (r + 20) && b > (r - 50) && b < (r - 20);
+      if (isGreen) {
+        Serial.println("is Green!");
+        ledcWrite(SERVO_SORT_CHAN, cSortGreen);
+      } else {
+        ledcWrite(SERVO_SORT_CHAN, cSortNotGreen);
+      }
+    }
+    // if previous gem was green 
+    else if (tcsFlag && prevGreen) {
+      ledcWrite(SERVO_SORT_CHAN, cSortGreen);
+      prevGreen = false;
+    }
+    pressed = false;
+  }
+
   // if push button is pressed and robot is currently stopped
-  if (!digitalRead(PUSH_BUTTON) && robotStage == 0) {
+  if (pressed && robotStage == 0) {
     Serial.println("Button pressed, moving to stage 1 and waiting two seconds");
     // set robot to stage 1
     robotStage = 1;
@@ -199,6 +267,7 @@ void loop() {
     Serial.printf("Set servo to %d\n", ledcRead(SERVO_DEPOSIT_CHAN));
     
     ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);                                                    // turn on windmill motor
+    pressed = false;
   }
 
   // if robot is in stage 1 (driving)
@@ -270,4 +339,14 @@ void ARDUINO_ISR_ATTR encoderISR(void* arg) {
    else {                                                                    // low, lagging channel A
       s->pos--;                                                              // decrease position
    }
+}
+
+// button isr
+void ARDUINO_ISR_ATTR buttonISR() {
+  buttonTime = millis();
+  if (buttonTime - lastButtonTime > DEBOUNCE) {
+    numberPresses++;
+    pressed = true;
+    lastButtonTime = buttonTime;
+  }
 }
