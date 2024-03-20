@@ -37,7 +37,7 @@ struct Encoder {
 #define ENCODER_RIGHT_A     11                                                 // right encoder A signal is connected to pin 19 GPIO11 (J11)
 #define ENCODER_RIGHT_B     12                                                 // right encoder B signal is connected to pin 20 GPIO12 (J12)
 #define WINDMILL_MOTOR_PIN  8                                                  // windmill motor pin
-#define WINDMILL_MOTOR_CHAN 5                                                  // windmill motor channel
+#define WINDMILL_MOTOR_CHAN 4                                                  // windmill motor channel
   // ultrasonic sensor
 #define USENSOR_TRIG        39                                                 // ultrasonic sensor trigger pin
 #define USENSOR_ECHO        40                                                 // ultrasonic sensor echo pin
@@ -47,7 +47,7 @@ struct Encoder {
 #define TCSLED              14                                                 // color sensor LED
   // servos
 #define SERVO_DEPOSIT_PIN   41                                                 // deposit servo motor pin
-#define SERVO_DEPOSIT_CHAN  4                                                  // deposit servo motor channel
+#define SERVO_DEPOSIT_CHAN  5                                                  // deposit servo motor channel
 #define SERVO_SORT_PIN      42                                                 // sort servo motor pin
 #define SERVO_SORT_CHAN     6                                                  // sort servo motor channel
   // inputs
@@ -60,9 +60,9 @@ struct Encoder {
 
 // constants
   // servos
-const int cDepositStore = 24;                                                  // deposit storing value (24/255 = 20%)
-const int cDepositDump = 30;                                                   // deposit dumping value (30/255 = 9%)
-const int cSortGreen = 24;                                                     // sorting value if green (24/255 = 20%)
+const int cDepositStore = 30;                                                  // deposit storing value (24/255 = 20%)
+const int cDepositDump = 14;                                                   // deposit dumping value (30/255 = 9%)
+const int cSortGreen = 14;                                                     // sorting value if green (24/255 = 20%)
 const int cSortNotGreen = 30;                                                  // sorting value if not green (30/255 = 9%)
 const int cServoPWMfreq = 50;                                                  // servo frequency
 const int cServoPWMRes = 8;                                                    // servo resolution
@@ -150,7 +150,8 @@ void setup() {
   }
 
   // set up servo pins
-  ledcAttachPin(SERVO_DEPOSIT_PIN, SERVO_DEPOSIT_CHAN);                          // set up servo motor and channel
+  pinMode(SERVO_DEPOSIT_PIN, OUTPUT);                                            // set up servo motor pin
+  ledcAttachPin(SERVO_DEPOSIT_PIN, SERVO_DEPOSIT_CHAN);                          // set up servo motor channel
   ledcSetup(SERVO_DEPOSIT_CHAN, cServoPWMfreq, cServoPWMRes);                    // set up channel with PWM freq and resolution
   ledcWrite(SERVO_DEPOSIT_CHAN, cDepositStore);
 
@@ -177,7 +178,7 @@ void setup() {
 void loop() {
   // get current time in microseconds (us)
   currTime = micros();
-  timeDiff = currTime - prevTime;p
+  timeDiff = currTime - prevTime;
 
   // if past loop time is 1ms less than current loop time 
   if (timeDiff >= 1000) {
@@ -229,25 +230,26 @@ void loop() {
     pressed = false;
 
     digitalWrite(TCSLED, HIGH);                                                                    // turn on TCS LED
+    ledcWrite(SERVO_DEPOSIT_CHAN, cDepositDump);
   }
 
-  // if robot is in stage 1 and two seconds have passed
-  if (robotStage == 1 && msCounter % 1000 == 0) {
-    if (tcsFlag) {
-      uint16_t r, g, b, c;                                                        // RGBC values from TCS
-      tcs.getRawData(&r, &g, &b, &c);
-      #ifdef DEBUG_COLOR
-      Serial.printf("R: %d, G: %d, B: %d, C: %d", r, g, b, c);
-      #endif
-      bool isGreen = r > 20 && r < 25 && g > 25 && g < 40 && b > 10 && b < 20 && c < 80 && c > 60;
-      if (isGreen) {
-        Serial.println("is Green!")
-        ledcWrite(SERVO_SORT_CHAN, cSortGreen);
-      } else {
-        ledcWrite(SERVO_DEPOSIT_CHAN, cSortNotGreen);
-      }
-    }
-  }
+  // // if robot is in stage 1 and two seconds have passed
+  // if (robotStage == 1 && msCounter % 1000 == 0) {
+  //   if (tcsFlag) {
+  //     uint16_t r, g, b, c;                                                        // RGBC values from TCS
+  //     tcs.getRawData(&r, &g, &b, &c);
+  //     #ifdef DEBUG_COLOR
+  //     Serial.printf("R: %d, G: %d, B: %d, C: %d", r, g, b, c);
+  //     #endif
+  //     bool isGreen = r > 20 && r < 25 && g > 25 && g < 40 && b > 10 && b < 20 && c < 80 && c > 60;
+  //     if (isGreen) {
+  //       Serial.println("is Green!");
+  //       ledcWrite(SERVO_SORT_CHAN, cSortGreen);
+  //     } else {
+  //       ledcWrite(SERVO_DEPOSIT_CHAN, cSortNotGreen);
+  //     }
+  //   }
+  // }
 
   // clear time passed flags
   oneSecondPassed = false;
