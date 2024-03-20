@@ -29,13 +29,13 @@ struct Encoder {
 #define ENCODER_RIGHT_A     11                                                 // right encoder A signal is connected to pin 19 GPIO11 (J11)
 #define ENCODER_RIGHT_B     12                                                 // right encoder B signal is connected to pin 20 GPIO12 (J12)
 #define WINDMILL_MOTOR_PIN  8                                                  // windmill motor pin
-#define WINDMILL_MOTOR_CHAN 5                                                  // windmill motor channel
+#define WINDMILL_MOTOR_CHAN 4                                                  // windmill motor channel
   // sensors
 #define USENSOR_TRIG        39                                                 // ultrasonic sensor trigger pin
 #define USENSOR_ECHO        40                                                 // ultrasonic sensor echo pin
   // servos
 #define SERVO_DEPOSIT_PIN   41                                                 // deposit servo motor
-#define SERVO_DEPOSIT_CHAN  4                                                  // deposit servo motor channel
+#define SERVO_DEPOSIT_CHAN  5                                                  // deposit servo motor channel
   // inputs
 #define PUSH_BUTTON         0                                                  // push button pin number
   // LEDs
@@ -44,10 +44,10 @@ struct Encoder {
 
 
 // constants
-const int cDepositStore = 24;                                                  // deposit storing value (24/255 = 20%)
-const int cDepositDump = 30;                                                  // deposit dumping value (30/255 = 9%)
-const int cServoPWMfreq = 50;                                                  // servo frequency
-const int cServoPWMRes = 8;                                                    // servo resolution
+const int cDepositStore = 500;                                                 // deposit storing value (14/255 = 5.5%)
+const int cDepositDump = 2000;                                                 // deposit dumping value (30/255 = 12%)
+const int cServoPWMfreq = 50;                                                  // servo frequency Hz
+const int cServoPWMRes = 14;                                                   // servo resolution
 const int cPWMFreq = 20000;                                                    // PWM frequency
 const int cPWMRes = 8;                                                         // PWM resolution
 // TO DO - change cPWMMin
@@ -82,6 +82,8 @@ bool twoSecondPassed;                                                          /
 float usDuration;                                                              // ultrasonic sensor duration (us)
 float usDistance;                                                              // ultrasonic sensor distance (cm)
 int usMode;                                                                    // track ultrasonic sensor mode (0 is stopped, 1 is sending, 2 is receiving)
+  // servo
+int servoPos = cDepositStore;
 
 void setup() {
   // put your setup code here, to run once:
@@ -103,14 +105,15 @@ void setup() {
   // set up windmill motor
   ledcAttachPin(WINDMILL_MOTOR_PIN, WINDMILL_MOTOR_CHAN);
   ledcSetup(WINDMILL_MOTOR_CHAN, cPWMFreq, cPWMRes);                                  // set up channel with PWM freq and resolution
-  // pinMode(WINDMILL_MOTOR, OUTPUT);
+  // pinMode(WINDMILL_MOTOR_PIN, OUTPUT);
 
   // set up ultrasonic sensor
   pinMode(USENSOR_TRIG, OUTPUT);
   pinMode(USENSOR_ECHO, INPUT);
 
   // set up servo pins
-  ledcAttachPin(SERVO_DEPOSIT_PIN, SERVO_DEPOSIT_CHAN);                          // set up servo motor and channel
+  pinMode(SERVO_DEPOSIT_PIN, OUTPUT);                                            // set up servo motor pin
+  ledcAttachPin(SERVO_DEPOSIT_PIN, SERVO_DEPOSIT_CHAN);                          // set up servo motor channel
   ledcSetup(SERVO_DEPOSIT_CHAN, cServoPWMfreq, cServoPWMRes);                    // set up channel with PWM freq and resolution
   ledcWrite(SERVO_DEPOSIT_CHAN, cDepositStore);
 
@@ -170,6 +173,10 @@ void loop() {
   
   // if milisecond counter is a multiple of 500 (i.e. every 500ms, ping ultrasonic detector)
   if (msCounter % 500 == 0) {
+    // if (servoPos < cDepositDump) {
+    //   servoPos++;
+    //   ledcWrite(SERVO_DEPOSIT_CHAN, servoPos);
+    // }
     // ultrasonic code
     digitalWrite(USENSOR_TRIG, HIGH);
     delayMicroseconds(10);
@@ -225,8 +232,6 @@ void loop() {
   // clear time passed flags
   oneSecondPassed = false;
   twoSecondPassed = false;
-
-  delay(1000);
 }
 
 // motor function
