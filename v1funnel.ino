@@ -60,12 +60,13 @@ struct Encoder {
 
 // constants
   // servos
-const int cDepositStore = 30;                                                  // deposit storing value (24/255 = 20%)
-const int cDepositDump = 14;                                                   // deposit dumping value (30/255 = 9%)
-const int cSortGreen = 14;                                                     // sorting value if green (24/255 = 20%)
-const int cSortNotGreen = 30;                                                  // sorting value if not green (30/255 = 9%)
+const int cDepositStore = 2000;                                                // deposit storing value (2000/16383 = 12.2%)
+const int cDepositDump = 1250;                                                 // deposit dumping value (1250/16383 = 7.6%)
+const int cSortGreen = 400;                                                    // sorting value if green
+const int cSortNotGreen = 625;                                                 // sorting value if not green
+const int cSortMiddle = 500;                                                   // sorting value to test gem color
 const int cServoPWMfreq = 50;                                                  // servo frequency
-const int cServoPWMRes = 8;                                                    // servo resolution
+const int cServoPWMRes = 14;                                                   // servo resolution
   // motors
 const int cPWMFreq = 20000;                                                    // PWM frequency
 const int cPWMRes = 8;                                                         // PWM resolution
@@ -111,6 +112,7 @@ volatile unsigned long buttonTime = 0;
 volatile unsigned long lastButtonTime = 0;
 uint32_t numberPresses = 0;
 bool pressed = false;
+int servoPos = cDepositStore;
 
 void setup() {
   // put your setup code here, to run once:
@@ -149,11 +151,17 @@ void setup() {
     tcsFlag = false;
   }
 
-  // set up servo pins
+  // set up sorting servo pins
+  pinMode(SERVO_SORT_PIN, OUTPUT);                                               // set up sorting servo motor pin
+  ledcAttachPin(SERVO_SORT_PIN, SERVO_SORT_CHAN);                                // set up sorting servo motor channel
+  ledcSetup(SERVO_SORT_CHAN, cServoPWMfreq, cServoPWMRes);                       // set up channel with PWM freq and resolution
+  ledcWrite(SERVO_SORT_CHAN, cSortMiddle);                                       // move sorting arm to middle
+
+  // set up deposit servo pins
   pinMode(SERVO_DEPOSIT_PIN, OUTPUT);                                            // set up servo motor pin
   ledcAttachPin(SERVO_DEPOSIT_PIN, SERVO_DEPOSIT_CHAN);                          // set up servo motor channel
   ledcSetup(SERVO_DEPOSIT_CHAN, cServoPWMfreq, cServoPWMRes);                    // set up channel with PWM freq and resolution
-  ledcWrite(SERVO_DEPOSIT_CHAN, cDepositStore);
+  ledcWrite(SERVO_DEPOSIT_CHAN, cDepositStore);                                  // move deposit bin to storage position
 
   // set up push button
   pinMode(PUSH_BUTTON, INPUT_PULLUP);
@@ -210,27 +218,33 @@ void loop() {
     }
   }
   
-  // if milisecond counter is a multiple of 500 (i.e. every 500ms, ping ultrasonic detector)
-  if (msCounter % 500 == 0) {
-    // ultrasonic code
-    digitalWrite(USENSOR_TRIG, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(USENSOR_TRIG, LOW);
-    usDuration = pulseIn(USENSOR_ECHO, HIGH);
-    usDistance = 0.017 * usDuration;                                                               // calculate distance
-    Serial.printf("Distance: %.2fcm\n", usDistance);
-  }
+  // // if milisecond counter is a multiple of 500 (i.e. every 500ms, ping ultrasonic detector)
+  // if (msCounter % 500 == 0) {
+  //   // // ultrasonic code
+  //   // digitalWrite(USENSOR_TRIG, HIGH);
+  //   // delayMicroseconds(10);
+  //   // digitalWrite(USENSOR_TRIG, LOW);
+  //   // usDuration = pulseIn(USENSOR_ECHO, HIGH);
+  //   // usDistance = 0.017 * usDuration;                                                               // calculate distance
+  //   // Serial.printf("Distance: %.2fcm\n", usDistance);
+  // }
 
   // if push button is pressed and robot is currently stopped
-  if (pressed && robotStage == 0) {
-    Serial.println("Button pressed, moving to stage 1 and waiting two seconds");
-    // set robot to stage 1
-    robotStage = 1;
-    // reset pressed bool
-    pressed = false;
-
+  // if (pressed && robotStage == 0) {
+  //   Serial.println("Button pressed, moving to stage 1 and waiting two seconds");
+  //   // set robot to stage 1
+  //   robotStage = 1;
+  //   // reset pressed bool
+  //   pressed = false;
+  // }
+  if (numberPresses % 2 == 0) {
     digitalWrite(TCSLED, HIGH);                                                                    // turn on TCS LED
+    ledcWrite(SERVO_SORT_CHAN, cSortGreen);
     ledcWrite(SERVO_DEPOSIT_CHAN, cDepositDump);
+  } else {
+    digitalWrite(TCSLED, LOW);
+    ledcWrite(SERVO_SORT_CHAN, cSortNotGreen);
+    ledcWrite(SERVO_DEPOSIT_CHAN, cDepositStore);
   }
 
   // // if robot is in stage 1 and two seconds have passed
