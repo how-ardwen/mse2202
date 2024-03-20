@@ -88,7 +88,7 @@ Encoder encoder[] = {{ENCODER_LEFT_A, ENCODER_LEFT_B, 0},
 Adafruit_NeoPixel SmartLEDs(SMART_LED_COUNT, SMART_LED, NEO_RGB + NEO_KHZ800); // smart LED
 
   // initialize TCS object with 2.4ms integration and gain of 4
-Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_2_4MS, TCS34725_GAIN_4X);
+Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_2_4MS, TCS34725_GAIN_16X);
 bool tcsFlag = false;                                                          // TCS flag, 1 is connected, 0 is not found
 
 // variables
@@ -143,6 +143,7 @@ void setup() {
   // set up tcs color sensor
   Wire.setPins(SDA, SCL);                                                        // set up i2c pins
   pinMode(TCSLED, OUTPUT);                                                       // set tcs LED as an output pin
+  digitalWrite(TCSLED, HIGH);
   if (tcs.begin()) {
     Serial.println("TCS connection found");
     tcsFlag = true;
@@ -200,7 +201,7 @@ void loop() {
     oneSecondCounter = oneSecondCounter + timeDiff/1000;
     // check to see if one second has passed
     if (oneSecondCounter >= 1000) {
-      Serial.println("1 second has passed");
+      // Serial.println("1 second has passed");
       // set one second passed flag to true
       oneSecondPassed = true;
       // reset counter
@@ -210,7 +211,7 @@ void loop() {
     // increment 2 second timer
     twoSecondCounter = twoSecondCounter + timeDiff/1000;
     if (twoSecondCounter >= 2000) {
-      Serial.println("2 seconds have passed");
+      // Serial.println("2 seconds have passed");
       // set two second passed flag to true
       twoSecondPassed = true;
       // reset counter
@@ -237,33 +238,33 @@ void loop() {
   //   // reset pressed bool
   //   pressed = false;
   // }
-  if (numberPresses % 2 == 0) {
-    digitalWrite(TCSLED, HIGH);                                                                    // turn on TCS LED
-    ledcWrite(SERVO_SORT_CHAN, cSortGreen);
-    ledcWrite(SERVO_DEPOSIT_CHAN, cDepositDump);
-  } else {
-    digitalWrite(TCSLED, LOW);
-    ledcWrite(SERVO_SORT_CHAN, cSortNotGreen);
-    ledcWrite(SERVO_DEPOSIT_CHAN, cDepositStore);
-  }
-
-  // // if robot is in stage 1 and two seconds have passed
-  // if (robotStage == 1 && msCounter % 1000 == 0) {
-  //   if (tcsFlag) {
-  //     uint16_t r, g, b, c;                                                        // RGBC values from TCS
-  //     tcs.getRawData(&r, &g, &b, &c);
-  //     #ifdef DEBUG_COLOR
-  //     Serial.printf("R: %d, G: %d, B: %d, C: %d", r, g, b, c);
-  //     #endif
-  //     bool isGreen = r > 20 && r < 25 && g > 25 && g < 40 && b > 10 && b < 20 && c < 80 && c > 60;
-  //     if (isGreen) {
-  //       Serial.println("is Green!");
-  //       ledcWrite(SERVO_SORT_CHAN, cSortGreen);
-  //     } else {
-  //       ledcWrite(SERVO_DEPOSIT_CHAN, cSortNotGreen);
-  //     }
-  //   }
+  // if (numberPresses % 2 == 0) {
+  //   digitalWrite(TCSLED, HIGH);                                                                    // turn on TCS LED
+  //   ledcWrite(SERVO_DEPOSIT_CHAN, cDepositDump);
+  //   ledcWrite(SERVO_SORT_CHAN, cSortGreen);
+  // } else {
+  //   digitalWrite(TCSLED, LOW);
+  //   ledcWrite(SERVO_SORT_CHAN, cSortNotGreen);
+  //   ledcWrite(SERVO_DEPOSIT_CHAN, cDepositStore);
   // }
+
+  if (pressed) {
+    if (tcsFlag) {
+      uint16_t r, g, b, c;                                                        // RGBC values from TCS
+      tcs.getRawData(&r, &g, &b, &c);
+      #ifdef DEBUG_COLOR
+      Serial.printf("R: %d, G: %d, B: %d, C: %d\n", r, g, b, c);
+      #endif
+      bool isGreen = g > (r + 20) && b > (r - 50) && b < (r - 20);
+      if (isGreen) {
+        Serial.println("is Green!");
+        ledcWrite(SERVO_SORT_CHAN, cSortGreen);
+      } else {
+        ledcWrite(SERVO_SORT_CHAN, cSortNotGreen);
+      }
+    }
+    pressed = false;
+  }
 
   // clear time passed flags
   oneSecondPassed = false;
