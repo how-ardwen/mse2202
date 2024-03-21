@@ -10,7 +10,7 @@ Howard Wen
 #include "Adafruit_TCS34725.h"                                                 // color sensor library
 
 // debug
-// #define DEBUG_COLOR                                                            // debug color sensors
+#define DEBUG_COLOR                                                            // debug color sensors
 
 // function compile declarations
 void setMotor(int dir, int pwm, int chanA, int chanB);
@@ -90,7 +90,8 @@ bool tcsFlag = false;
 
 // variables
 int driveSpeed;                                                                // speed for motor
-int robotStage;                                                                // tracks robot stage: 0 = stop, 1 = driving
+int robotStage;                                                                // tracks robot stage: 0 = stop, 1 = driving, 2 = returning
+int driveStage;                                                                // tracks driving pattern, 0 = stop, 1 = forward, 2 = turning
   // time variables
 unsigned long prevTime;                                                        // previous time for arduino
 unsigned long currTime;                                                        // current time for arduino
@@ -131,9 +132,9 @@ void setup() {
   }
 
   // set up windmill motor
-  pinMode(WINDMILL_MOTOR_PIN, OUTPUT);                                           // set up motor pin output
   ledcAttachPin(WINDMILL_MOTOR_PIN, WINDMILL_MOTOR_CHAN);                        // set up pin and channel
   ledcSetup(WINDMILL_MOTOR_CHAN, cPWMFreq, cPWMRes);                             // set up channel with PWM freq and resolution
+  // pinMode(WINDMILL_MOTOR_PIN, OUTPUT);                                           // set up motor pin output
 
   // set up ultrasonic sensor
   pinMode(USENSOR_TRIG, OUTPUT);
@@ -175,10 +176,13 @@ void setup() {
   // declare us mode
   usMode = 0;
 
+  robotStage = 0;
+  driveStage = 0;
+
   // Set up SmartLED
   SmartLEDs.begin();                                                          // initialize smart LEDs object (REQUIRED)
   SmartLEDs.clear();                                                          // clear pixel
-  SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,255,0));                        // set pixel colors to green
+  SmartLEDs.setPixelColor(0,SmartLEDs.Color(255,0,0));                        // set pixel colors to green
   SmartLEDs.setBrightness(15);                                                // set brightness of heartbeat LED
   SmartLEDs.show();                                                           // send the updated pixel colors to the hardware
 }
@@ -200,7 +204,7 @@ void loop() {
     oneSecondCounter = oneSecondCounter + timeDiff/1000;
     // check to see if one second has passed
     if (oneSecondCounter >= 1000) {
-      Serial.println("1 second has passed");
+      // Serial.println("1 second has passed");
       // set one second passed flag to true
       oneSecondPassed = true;
       // reset counter
@@ -210,7 +214,7 @@ void loop() {
     // increment 2 second timer
     twoSecondCounter = twoSecondCounter + timeDiff/1000;
     if (twoSecondCounter >= 2000) {
-      Serial.println("2 seconds have passed");
+      // Serial.println("2 seconds have passed");
       // set two second passed flag to true
       twoSecondPassed = true;
       // reset counter
@@ -218,47 +222,13 @@ void loop() {
     }
   }
   
-  // if milisecond counter is a multiple of 500 (i.e. every 500ms, ping ultrasonic detector)
-  if (msCounter % 500 == 0) {
-    // ultrasonic code
-    digitalWrite(USENSOR_TRIG, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(USENSOR_TRIG, LOW);
-    usDuration = pulseIn(USENSOR_ECHO, HIGH);
-    usDistance = 0.017 * usDuration;                                                      // calculate distance
-    Serial.printf("Distance: %.2fcm\n", usDistance);
-  }
-
-  // every 250ms
-  if (msCounter % 250 == 0) {
-    // if tcs is on and previous gem wasn't green, test color
-    if (tcsFlag && !prevGreen) {
-      uint16_t r, g, b, c;                                                        // RGBC values from TCS
-      tcs.getRawData(&r, &g, &b, &c);
-      #ifdef DEBUG_COLOR
-      Serial.printf("R: %d, G: %d, B: %d, C: %d\n", r, g, b, c);
-      #endif
-      isGreen = g > (r + 20) && b > (r - 50) && b < (r - 20);
-      if (isGreen) {
-        Serial.println("is Green!");
-        ledcWrite(SERVO_SORT_CHAN, cSortGreen);
-      } else {
-        ledcWrite(SERVO_SORT_CHAN, cSortNotGreen);
-      }
-    }
-    // if previous gem was green 
-    else if (tcsFlag && prevGreen) {
-      ledcWrite(SERVO_SORT_CHAN, cSortGreen);
-      prevGreen = false;
-    }
-    pressed = false;
-  }
-
   // if push button is pressed and robot is currently stopped
   if (pressed && robotStage == 0) {
     Serial.println("Button pressed, moving to stage 1 and waiting two seconds");
     // set robot to stage 1
     robotStage = 1;
+    // set drive to stage 1
+    driveStage = 1;
     // reset 2 second timer
     twoSecondPassed = false;
     twoSecondCounter = 0;
@@ -266,32 +236,74 @@ void loop() {
     ledcWrite(SERVO_DEPOSIT_CHAN, cDepositDump);
     Serial.printf("Set servo to %d\n", ledcRead(SERVO_DEPOSIT_CHAN));
     
-    ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);                                                    // turn on windmill motor
+    ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);                                 // turn on windmill motor
     pressed = false;
+
+    SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,255,0));                        // set pixel colors to green
+    SmartLEDs.setBrightness(15);                                                // set brightness of heartbeat LED
+    SmartLEDs.show();                                                           // send the updated pixel colors to the hardware
   }
 
-  // if robot is in stage 1 (driving)
+  // if robot is in drive mode
   if (robotStage == 1) {
-    if (twoSecondPassed) {
+    // if milisecond counter is a multiple of 500 (i.e. every 500ms, ping ultrasonic detector)
+    if (msCounter % 500 == 0) {
+      // ultrasonic code
+      digitalWrite(USENSOR_TRIG, HIGH);
+      delayMicroseconds(10);
+      digitalWrite(USENSOR_TRIG, LOW);
+      usDuration = pulseIn(USENSOR_ECHO, HIGH);
+      usDistance = 0.017 * usDuration;                                               // calculate distance
+      // Serial.printf("Distance: %.2fcm\n", usDistance);
+    }
+
+    // if tcs is on and 250ms have passed
+    if (msCounter % 250 == 0 && tcsFlag) {
+      // if previous gem was green
+      if (isGreen) {
+        ledcWrite(SERVO_SORT_CHAN, cSortGreen);                                     // keep arm open
+        isGreen = false;                                                            // set isGreen to false
+      } 
+      // otherwise, test gem color
+      else {
+        uint16_t r, g, b, c;                                                        // RGBC values from TCS
+        tcs.getRawData(&r, &g, &b, &c);
+        #ifdef DEBUG_COLOR
+        Serial.printf("R: %d, G: %d, B: %d, C: %d\n", r, g, b, c);
+        #endif
+        isGreen = g > (r + 20) && b > (g - 20) && b < (g - 10);
+        if (isGreen) {
+          Serial.println("is Green!");
+          ledcWrite(SERVO_SORT_CHAN, cSortGreen);
+        } else {
+          ledcWrite(SERVO_SORT_CHAN, cSortNotGreen);
+        }
+      }
+    }
+
+    // wait two seconds before driving forwards
+    if (twoSecondPassed && driveStage == 1) {
       Serial.printf("2 seconds have passed, now movingat speed %d\n", driveSpeed);
       // start the motors to go forwards
       setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);
       setMotor(-1, driveSpeed, cINChanA[1], cINChanB[1]);
       // set stage
-      robotStage = 2;
+      driveStage = 2;
     }
+
+    // if driveStage == 2
+    if (driveStage == 2 && usDistance > 1 && usDistance < 5) {
+      Serial.println("Robot has encountered obstacle, stopping");
+      robotStage = 0;
+      encoder[0].pos = 0;
+      // start the motors to stop
+      setMotor(0, 0, cINChanA[0], cINChanB[0]);
+      setMotor(0, 0, cINChanA[1], cINChanB[1]);
+    }
+
   }
 
-  if (robotStage == 2 && usDistance > 1 && usDistance < 5) {
-    Serial.println("Robot has encountered obstacle, stopping");
-    robotStage = 0;
-    encoder[0].pos = 0;
-    // start the motors to stop
-    setMotor(0, 0, cINChanA[0], cINChanB[0]);
-    setMotor(0, 0, cINChanA[1], cINChanB[1]);
-  }
-
-  // if (robotStage == 0 && twoSecondPassed) {
+  // if (robotStage == 0) {
   //   Serial.println("stopping motors!");
   //   // start the motors to stop
   //   setMotor(0, 0, cINChanA[0], cINChanB[0]);
