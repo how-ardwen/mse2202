@@ -14,8 +14,11 @@ Howard Wen
 
 // function compile declarations
 void setMotor(int dir, int pwm, int chanA, int chanB);
+void stopMotor();
+void clearEncoders();
 void ARDUINO_ISR_ATTR encoderISR(void* arg);
 void ARDUINO_ISR_ATTR buttonISR();
+void ARDUINO_ISR_ATTR timerISR();
 
 // structures
 struct Encoder {
@@ -89,9 +92,11 @@ Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_2_4MS, TCS347
 bool tcsFlag = false;
 
 // variables
+  // navigation
 int driveSpeed;                                                                // speed for motor
-int robotStage;                                                                // tracks robot stage: 0 = stop, 1 = driving, 2 = returning
-int driveStage;                                                                // tracks driving pattern, 0 = stop, 1 = forward, 2 = turning
+int robotStage = 0;                                                            // tracks robot stage: 0 = stop, 1 = driving, 2 = returning
+int driveStage = 0;                                                            // tracks driving pattern, 0 = stop, 1 = forward, 2 = turning
+int turnNum = 0;                                                               // track number of turns
   // time variables
 unsigned long prevTime;                                                        // previous time for arduino
 unsigned long currTime;                                                        // current time for arduino
@@ -113,6 +118,9 @@ bool pressed = false;                                                          /
   // color sensor
 bool isGreen;                                                                  // track whether current gem is green
 bool prevGreen = false;                                                        // track whether prev test had a green gem
+  // timer interrupt
+hw_timer_t* pTimer = NULL;                                                     // timer pointer
+bool returnHome = false;                                                       // determine whether it needs to return from
 
 void setup() {
   // put your setup code here, to run once:
@@ -176,9 +184,6 @@ void setup() {
   // declare us mode
   usMode = 0;
 
-  robotStage = 0;
-  driveStage = 0;
-
   // Set up SmartLED
   SmartLEDs.begin();                                                          // initialize smart LEDs object (REQUIRED)
   SmartLEDs.clear();                                                          // clear pixel
@@ -229,19 +234,29 @@ void loop() {
     robotStage = 1;
     // set drive to stage 1
     driveStage = 1;
+
     // reset 2 second timer
     twoSecondPassed = false;
     twoSecondCounter = 0;
+
+    // set up timer alarm
+    pTimer = timerBegin(1);                                                    // initialize timer with 1 Hz (aka 1 second clock)
+    timerAttachInterrupt(pTimer, &timerISR);                                   // attach timer interrupt
+    timerAlarm(pTimer, 100, false)                                             // initialize timer to go off after 100 ticks (100 seconds)
+
+    // clear encoders
+    clearEncoders();
 
     ledcWrite(SERVO_DEPOSIT_CHAN, cDepositDump);
     Serial.printf("Set servo to %d\n", ledcRead(SERVO_DEPOSIT_CHAN));
     
     ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);                                 // turn on windmill motor
-    pressed = false;
 
     SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,255,0));                        // set pixel colors to green
     SmartLEDs.setBrightness(15);                                                // set brightness of heartbeat LED
     SmartLEDs.show();                                                           // send the updated pixel colors to the hardware
+
+    pressed = false;                                                            // reset button flag
   }
 
   // if robot is in drive mode
@@ -255,6 +270,12 @@ void loop() {
       usDuration = pulseIn(USENSOR_ECHO, HIGH);
       usDistance = 0.017 * usDuration;                                               // calculate distance
       // Serial.printf("Distance: %.2fcm\n", usDistance);
+      if (usDistance > 1 && usDistance < 5) {
+        Serial.println("Robot has encountered obstacle, stopping");
+        encoder[0].pos = 0;
+        stopMotor();
+        robotStage = 0;
+      }
     }
 
     // if tcs is on and 250ms have passed
@@ -292,23 +313,40 @@ void loop() {
     }
 
     // if driveStage == 2
-    if (driveStage == 2 && usDistance > 1 && usDistance < 5) {
-      Serial.println("Robot has encountered obstacle, stopping");
-      robotStage = 0;
-      encoder[0].pos = 0;
-      // start the motors to stop
-      setMotor(0, 0, cINChanA[0], cINChanB[0]);
-      setMotor(0, 0, cINChanA[1], cINChanB[1]);
+    if (driveStage == 2 && encoder[0].pos >= 1000) {
+      // even turn number, turn right
+      if (turnNum % 2 == 0) {
+        setMotor(0,0, cINChanA[0], cINChanB[0]);                                    // stop right motor
+      }
+      // odd number turns, turn left
+      else {
+        setMotor(0,0, cINChanA[1], cINChanB[1]);                                    // stop left motor
+      }
+
+      // clear encoders
+      clearEncoders();
+
+      turnNum++;                                                                    // increment turn number
+      driveStage = 3;                                                               // set drive stage to 3
     }
 
+    if (driveStage == 3 && (encoder[0].pos >= 250 || encoder[1].pos <= -250)) {
+      if (turnNum % 2 == 0) {
+        setMotor(-1, driveSpeed, cINChanA[1], cINChanB[1]);                         // start up left motor again
+      }
+      else {
+        setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);                          // start up right motor again
+      }
+
+      clearEncoders();                                                              // clear encoders
+      driveStage = 2;                                                               // set drive stage to 2
+    }
   }
 
-  // if (robotStage == 0) {
-  //   Serial.println("stopping motors!");
-  //   // start the motors to stop
-  //   setMotor(0, 0, cINChanA[0], cINChanB[0]);
-  //   setMotor(0, 0, cINChanA[1], cINChanB[1]);
-  // }
+  // if alarm goes off to return home and deposit gems
+  if (returnHome) {
+    robotStage = 3;
+  }
 
   // clear time passed flags
   oneSecondPassed = false;
@@ -338,6 +376,20 @@ void setMotor(int dir, int pwm, int chanA, int chanB) {
   }
 }
 
+// stop motor
+void stopMotor() {
+  ledcWrite(cINChanA[0], 0);
+  ledcWrite(cINChanB[0], 0);
+  ledcWrite(cINChanA[1], 0);
+  ledcWrite(cINChanB[1], 0);
+}
+
+// clear encoders
+void clearEncoders() {
+  encoder[0].pos = 0;
+  encoder[1].pos = 0;
+}
+
 // encoder interrupt service routine
 // argument is pointer to an encoder structure, which is statically cast to a Encoder structure, allowing multiple
 // instances of the encoderISR to be created (1 per encoder)
@@ -361,4 +413,9 @@ void ARDUINO_ISR_ATTR buttonISR() {
     pressed = true;
     lastButtonTime = buttonTime;
   }
+}
+
+// timer isr
+void ARDUINO_ISR_ATTR timerISR() {
+  returnHome = true;
 }
