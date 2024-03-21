@@ -78,6 +78,8 @@ const int cINPinA[] = {LEFT_MOTOR_A, RIGHT_MOTOR_A};                           /
 const int cINChanA[] = {0,1};                                                  // left and right motor A ledc channels
 const int cINPinB[] = {LEFT_MOTOR_B, RIGHT_MOTOR_B};                           // left and right motor B pins
 const int cINChanB[] = {2,3};                                                  // left and right motor B ledc channels
+  // timer
+const int cSweepTime = 100;                                                    // time for robot to sweep ground area
 
 // objects
   // left and right encoder structures initialized with position 0
@@ -242,7 +244,7 @@ void loop() {
     // set up timer alarm
     pTimer = timerBegin(1);                                                    // initialize timer with 1 Hz (aka 1 second clock)
     timerAttachInterrupt(pTimer, &timerISR);                                   // attach timer interrupt
-    timerAlarm(pTimer, 100, false)                                             // initialize timer to go off after 100 ticks (100 seconds)
+    timerAlarm(pTimer, cSweepTime, false)                                      // initialize timer to go off after 100 ticks (100 seconds)
 
     // clear encoders
     clearEncoders();
