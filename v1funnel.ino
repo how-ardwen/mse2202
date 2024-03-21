@@ -241,10 +241,10 @@ void loop() {
     twoSecondPassed = false;
     twoSecondCounter = 0;
 
-    // set up timer alarm
-    pTimer = timerBegin(1);                                                    // initialize timer with 1 Hz (aka 1 second clock)
-    timerAttachInterrupt(pTimer, &timerISR);                                   // attach timer interrupt
-    timerAlarm(pTimer, cSweepTime, false)                                      // initialize timer to go off after 100 ticks (100 seconds)
+    // // set up timer alarm
+    // pTimer = timerBegin(1);                                                    // initialize timer with 1 Hz (aka 1 second clock)
+    // timerAttachInterrupt(pTimer, &timerISR);                                   // attach timer interrupt
+    // timerAlarm(pTimer, cSweepTime, false)                                      // initialize timer to go off after 100 ticks (100 seconds)
 
     // clear encoders
     clearEncoders();
@@ -315,7 +315,7 @@ void loop() {
     }
 
     // if driveStage == 2
-    if (driveStage == 2 && encoder[0].pos >= 1000) {
+    if (driveStage == 2 && encoder[0].pos >= 5000) {
       // even turn number, turn right
       if (turnNum % 2 == 0) {
         setMotor(0,0, cINChanA[0], cINChanB[0]);                                    // stop right motor
@@ -332,7 +332,7 @@ void loop() {
       driveStage = 3;                                                               // set drive stage to 3
     }
 
-    if (driveStage == 3 && (encoder[0].pos >= 250 || encoder[1].pos <= -250)) {
+    if (driveStage == 3 && (encoder[0].pos >= 1500 || encoder[1].pos <= -1500)) {
       if (turnNum % 2 == 0) {
         setMotor(-1, driveSpeed, cINChanA[1], cINChanB[1]);                         // start up left motor again
       }
