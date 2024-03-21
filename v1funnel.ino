@@ -79,6 +79,7 @@ const int cINChanA[] = {0,1};                                                  /
 const int cINPinB[] = {LEFT_MOTOR_B, RIGHT_MOTOR_B};                           // left and right motor B pins
 const int cINChanB[] = {2,3};                                                  // left and right motor B ledc channels
   // timer
+const int timer1 = 0;
 const int sweepTime = 15;
 
 // objects
@@ -178,6 +179,11 @@ void setup() {
   pinMode(PUSH_BUTTON, INPUT_PULLUP);
   attachInterrupt(PUSH_BUTTON, buttonISR, FALLING);
 
+  // set up timer alarm
+  pTimer = timerBegin(timer1, 80000000, true);                                   // initialize esp32 timer1, with 1 second clock, counting up
+  timerAttachInterrupt(pTimer, &timerISR, true);                                 // attach timer interrupt to timer, edge enabled
+  timerAlarmWrite(pTimer, sweepTime, false);                                     // creaeate timer which will go off after 100 ticks (100 seconds) and not repeat
+
   // declare previous time as 0 and current time as 0
   prevTime = 0;
   currTime = 0;
@@ -197,12 +203,9 @@ void setup() {
 void loop() {
   // if push button is pressed and robot is currently stopped
   if (pressed) {
-    // set up timer alarm
-    pTimer = timerBegin(1);                                                    // initialize timer with 1 Hz (aka 1 second clock)
-    timerAttachInterrupt(pTimer, &timerISR);                                   // attach timer interrupt
-    timerAlarm(pTimer, sweepTime, false)                                       // initialize timer to go off after 100 ticks (100 seconds)
+    timerAlarmEnable(pTimer);    
 
-    Serial.println("starting %d second timer\n", sweepTime);
+    Serial.printf("Starting %d second timer\n", sweepTime);
 
     pressed = false;                                                            // reset button flag
   }
