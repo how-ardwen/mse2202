@@ -78,6 +78,8 @@ const int cINPinA[] = {LEFT_MOTOR_A, RIGHT_MOTOR_A};                           /
 const int cINChanA[] = {0,1};                                                  // left and right motor A ledc channels
 const int cINPinB[] = {LEFT_MOTOR_B, RIGHT_MOTOR_B};                           // left and right motor B pins
 const int cINChanB[] = {2,3};                                                  // left and right motor B ledc channels
+  // timer
+const int sweepTime = 15;
 
 // objects
   // left and right encoder structures initialized with position 0
@@ -193,159 +195,21 @@ void setup() {
 }
 
 void loop() {
-  // get current time in microseconds (us)
-  currTime = micros();
-  timeDiff = currTime - prevTime;
-
-  // if past loop time is 1ms less than current loop time 
-  if (timeDiff >= 1000) {
-    // update previous time
-    prevTime = currTime;
-
-    // increment ms counter
-    msCounter = msCounter + 1;
-
-    // increment 1 second timer
-    oneSecondCounter = oneSecondCounter + timeDiff/1000;
-    // check to see if one second has passed
-    if (oneSecondCounter >= 1000) {
-      // Serial.println("1 second has passed");
-      // set one second passed flag to true
-      oneSecondPassed = true;
-      // reset counter
-      oneSecondCounter = 0;
-    }
-
-    // increment 2 second timer
-    twoSecondCounter = twoSecondCounter + timeDiff/1000;
-    if (twoSecondCounter >= 2000) {
-      // Serial.println("2 seconds have passed");
-      // set two second passed flag to true
-      twoSecondPassed = true;
-      // reset counter
-      twoSecondCounter = 0;
-    }
-  }
-  
   // if push button is pressed and robot is currently stopped
-  if (pressed && robotStage == 0) {
-    Serial.println("Button pressed, moving to stage 1 and waiting two seconds");
-    // set robot to stage 1
-    robotStage = 1;
-    // set drive to stage 1
-    driveStage = 1;
-
-    // reset 2 second timer
-    twoSecondPassed = false;
-    twoSecondCounter = 0;
-
+  if (pressed) {
     // set up timer alarm
     pTimer = timerBegin(1);                                                    // initialize timer with 1 Hz (aka 1 second clock)
     timerAttachInterrupt(pTimer, &timerISR);                                   // attach timer interrupt
-    timerAlarm(pTimer, 100, false)                                             // initialize timer to go off after 100 ticks (100 seconds)
+    timerAlarm(pTimer, sweepTime, false)                                       // initialize timer to go off after 100 ticks (100 seconds)
 
-    // clear encoders
-    clearEncoders();
-
-    ledcWrite(SERVO_DEPOSIT_CHAN, cDepositDump);
-    Serial.printf("Set servo to %d\n", ledcRead(SERVO_DEPOSIT_CHAN));
-    
-    ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);                                 // turn on windmill motor
-
-    SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,255,0));                        // set pixel colors to green
-    SmartLEDs.setBrightness(15);                                                // set brightness of heartbeat LED
-    SmartLEDs.show();                                                           // send the updated pixel colors to the hardware
+    Serial.println("starting %d second timer\n", sweepTime);
 
     pressed = false;                                                            // reset button flag
   }
 
-  // if robot is in drive mode
-  if (robotStage == 1) {
-    // if milisecond counter is a multiple of 500 (i.e. every 500ms, ping ultrasonic detector)
-    if (msCounter % 500 == 0) {
-      // ultrasonic code
-      digitalWrite(USENSOR_TRIG, HIGH);
-      delayMicroseconds(10);
-      digitalWrite(USENSOR_TRIG, LOW);
-      usDuration = pulseIn(USENSOR_ECHO, HIGH);
-      usDistance = 0.017 * usDuration;                                               // calculate distance
-      // Serial.printf("Distance: %.2fcm\n", usDistance);
-      if (usDistance > 1 && usDistance < 5) {
-        Serial.println("Robot has encountered obstacle, stopping");
-        encoder[0].pos = 0;
-        stopMotor();
-        robotStage = 0;
-      }
-    }
-
-    // if tcs is on and 250ms have passed
-    if (msCounter % 250 == 0 && tcsFlag) {
-      // if previous gem was green
-      if (isGreen) {
-        ledcWrite(SERVO_SORT_CHAN, cSortGreen);                                     // keep arm open
-        isGreen = false;                                                            // set isGreen to false
-      } 
-      // otherwise, test gem color
-      else {
-        uint16_t r, g, b, c;                                                        // RGBC values from TCS
-        tcs.getRawData(&r, &g, &b, &c);
-        #ifdef DEBUG_COLOR
-        Serial.printf("R: %d, G: %d, B: %d, C: %d\n", r, g, b, c);
-        #endif
-        isGreen = g > (r + 20) && b > (g - 20) && b < (g - 10);
-        if (isGreen) {
-          Serial.println("is Green!");
-          ledcWrite(SERVO_SORT_CHAN, cSortGreen);
-        } else {
-          ledcWrite(SERVO_SORT_CHAN, cSortNotGreen);
-        }
-      }
-    }
-
-    // wait two seconds before driving forwards
-    if (twoSecondPassed && driveStage == 1) {
-      Serial.printf("2 seconds have passed, now movingat speed %d\n", driveSpeed);
-      // start the motors to go forwards
-      setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);
-      setMotor(-1, driveSpeed, cINChanA[1], cINChanB[1]);
-      // set stage
-      driveStage = 2;
-    }
-
-    // if driveStage == 2
-    if (driveStage == 2 && encoder[0].pos >= 1000) {
-      // even turn number, turn right
-      if (turnNum % 2 == 0) {
-        setMotor(0,0, cINChanA[0], cINChanB[0]);                                    // stop right motor
-      }
-      // odd number turns, turn left
-      else {
-        setMotor(0,0, cINChanA[1], cINChanB[1]);                                    // stop left motor
-      }
-
-      // clear encoders
-      clearEncoders();
-
-      turnNum++;                                                                    // increment turn number
-      driveStage = 3;                                                               // set drive stage to 3
-    }
-
-    if (driveStage == 3 && (encoder[0].pos >= 250 || encoder[1].pos <= -250)) {
-      if (turnNum % 2 == 0) {
-        setMotor(-1, driveSpeed, cINChanA[1], cINChanB[1]);                         // start up left motor again
-      }
-      else {
-        setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);                          // start up right motor again
-      }
-
-      clearEncoders();                                                              // clear encoders
-      driveStage = 2;                                                               // set drive stage to 2
-    }
-  }
-
-  // if alarm goes off to return home and deposit gems
   if (returnHome) {
-    robotStage = 3;
+    Serial.println("15 second timer up!");
+    returnHome = false;
   }
 
   // clear time passed flags
