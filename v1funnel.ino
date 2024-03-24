@@ -14,7 +14,7 @@ Howard Wen
 
 // function compile declarations
 void setMotor(int dir, int pwm, int chanA, int chanB);
-void stopMotor();
+void stopMotors();
 void clearEncoders();
 void ARDUINO_ISR_ATTR encoderISR(void* arg);
 void ARDUINO_ISR_ATTR buttonISR();
@@ -46,6 +46,8 @@ struct Encoder {
 #define SDA                 47                                                 // I2C data pin
 #define SCL                 48                                                 // I2C clock pin
 #define TCSLED              14                                                 // color sensor LED
+  // IR detector
+#define IR_PIN              13                                                 // IR detector pin
   // servos
 #define SERVO_DEPOSIT_PIN   41                                                 // deposit servo motor pin
 #define SERVO_DEPOSIT_CHAN  5                                                  // deposit servo motor channel
@@ -96,8 +98,9 @@ bool tcsFlag = false;
 // variables
   // navigation
 int driveSpeed;                                                                // speed for motor
-int robotStage = 0;                                                            // tracks robot stage: 0 = stop, 1 = driving, 2 = returning
+int robotStage = 0;                                                            // tracks robot stage: 0 = idle, 1 = collecting, 2 = depositing
 int driveStage = 0;                                                            // tracks driving pattern, 0 = stop, 1 = forward, 2 = turning
+int depositStage = 0;                                                          // tracks deposit pattern, 0 = searching for IR, 1 = forward, 2 = turning around, 3 = depositing
 int turnNum = 0;                                                               // track number of turns
   // time variables
 unsigned long prevTime;                                                        // previous time for arduino
@@ -161,6 +164,9 @@ void setup() {
     Serial.println("TCS connection not found, try again");
     tcsFlag = false;
   }
+
+  // set up IR detector
+  pinMode(IR_PIN, INPUT);
 
   // set up sorting servo pins
   pinMode(SERVO_SORT_PIN, OUTPUT);                                               // set up sorting servo motor pin
@@ -229,7 +235,7 @@ void loop() {
     }
   }
   
-  // if push button is pressed and robot is currently stopped
+  // if push button is pressed and robot is currently idle
   if (pressed && robotStage == 0) {
     Serial.println("Button pressed, moving to stage 1 and waiting two seconds");
     // set robot to stage 1
@@ -261,7 +267,7 @@ void loop() {
     pressed = false;                                                            // reset button flag
   }
 
-  // if robot is in drive mode
+  // if robot is in collection mode
   if (robotStage == 1) {
     // if milisecond counter is a multiple of 500 (i.e. every 500ms, ping ultrasonic detector)
     if (msCounter % 500 == 0) {
@@ -275,7 +281,7 @@ void loop() {
       if (usDistance > 1 && usDistance < 5) {
         Serial.println("Robot has encountered obstacle, stopping");
         encoder[0].pos = 0;
-        stopMotor();
+        stopMotors();
         robotStage = 0;
       }
     }
@@ -347,7 +353,31 @@ void loop() {
 
   // if alarm goes off to return home and deposit gems
   if (returnHome) {
-    robotStage = 3;
+    robotStage = 3;                                                                 // set to stage 3
+    stopMotors();                                                                   // stop motors
+
+    // reset 1 second timer
+    oneSecondPassed = false;
+    oneSecondCounter = 0;
+
+    SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,0,255));                            // set pixel colors to blue
+    SmartLEDs.setBrightness(15);                                                    // set brightness of heartbeat LED
+    SmartLEDs.show();                                                               // send the updated pixel colors to the hardware
+  }
+
+  // if in depositing stage
+  if (robotStage == 3) {
+    // search after waiting 1 second 
+    if (depositStage == 0 && oneSecondPassed) {
+      setMotor(1, driveSpeed/2, cINChanA[0], cINChanB[0]);                          // set left motor to drive forwards
+      setMotor(1, driveSpeed/2, cINChanA[1], cINChanB[1]);                          // set right motor to drive backwards
+      depositStage = 1;                                                             // set deposit stage to 1 (going forwards)
+    }
+
+    // while spinning, search for IR signal every 5ms
+    if (depositStage == 1 && msCounter % 5 == 0) {
+      digitalRead(IR_PIN);
+    }
   }
 
   // clear time passed flags
@@ -379,7 +409,7 @@ void setMotor(int dir, int pwm, int chanA, int chanB) {
 }
 
 // stop motor
-void stopMotor() {
+void stopMotors() {
   ledcWrite(cINChanA[0], 0);
   ledcWrite(cINChanB[0], 0);
   ledcWrite(cINChanA[1], 0);
