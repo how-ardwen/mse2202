@@ -131,19 +131,6 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
 
-  // set up motors and encoders
-  for (int k = 0; k < cNumMotors; k++) {
-    ledcAttachPin(cINPinA[k], cINChanA[k]);                                     // set up L/R motor A pin and set to corresponding channel {0,1}
-    ledcSetup(cINChanA[k], cPWMFreq, cPWMRes);                                  // set up channel with PWM freq and resolution
-    ledcAttachPin(cINPinB[k], cINChanB[k]);                                     // set up L/R motor B pin and set to corresponding channel {2,3}
-    ledcSetup(cINChanB[k], cPWMFreq, cPWMRes);                                  // set up channel with PWM freq and resolution
-
-    pinMode(encoder[k].chanA, INPUT);                                           // configure GPIO for encoder channel A input
-    pinMode(encoder[k].chanB, INPUT);                                           // configure GPIO for encoder channel B input
-    // configure encoder to trigger interrupt with each rising edge on channel A
-    attachInterruptArg(encoder[k].chanA, encoderISR, &encoder[k], RISING);
-  }
-
   // set up windmill motor
   ledcAttachPin(WINDMILL_MOTOR_PIN, WINDMILL_MOTOR_CHAN);                        // set up pin and channel
   ledcSetup(WINDMILL_MOTOR_CHAN, cPWMFreq, cPWMRes);                             // set up channel with PWM freq and resolution
@@ -203,10 +190,14 @@ void setup() {
 
 void loop() {
   // every second if there is input on serial 2
-  if (millis() % 1000 == 0 && Serial1.available() > 0) {
-    char irVal;
-    irVal = Serial2.read(IR_PIN);
-    Serial.printf("IR Detector: %c\n", irVal);
+  if (pressed) {
+    Serial.printf("%d", Serial1.available());
+    if (Serial1.available() > 0) {
+      char irVal = Serial1.read();
+      Serial.printf("IR Detector: %c\n", irVal);
+    }
+
+    pressed = false;
   }
 
   // clear time passed flags
