@@ -80,7 +80,7 @@ const int cINPinB[] = {LEFT_MOTOR_B, RIGHT_MOTOR_B};                           /
 const int cINChanB[] = {2,3};                                                  // left and right motor B ledc channels
   // timer
 const int cTimer1ID = 0;                                                       // timer 1 (1 of 4 timers with IDs from 0 to 3)
-const int cSweepTime = 15000000;                                               // 15,000,000 ticks (15 seconds)
+const int cSweepTime = 15;                                                  // 15,000,000 ticks (15 seconds)
 const int cPrescaler = 80;                                                     // prescaler (80 MHz => 1 MHz)
 
 // objects
@@ -181,10 +181,11 @@ void setup() {
   attachInterrupt(PUSH_BUTTON, buttonISR, FALLING);
 
   // set up timer alarm
-  pTimer = timerBegin(cTimer1ID, cPrescaler, true);                              // initialize esp32 timer1, with 1 microsecond clock, counting up
+  pTimer = timerBegin(0, 80, true);                                      // initialize esp32 timer1, with 1 microsecond clock, counting up
   timerStop(pTimer);                                                             // stop the timer after initialization
   timerAttachInterrupt(pTimer, &timerISR, true);                                 // attach timer interrupt to timer, edge enabled
-  timerAlarmWrite(pTimer, sweepTime, false);                                     // set timer to go off after 15 seconds, no reload
+  timerAlarmWrite(pTimer, 15000000, true);                                     // set timer to go off after 15 seconds, no reload
+  timerAlarmEnable(pTimer);
 
   // declare previous time as 0 and current time as 0
   prevTime = 0;
@@ -207,13 +208,19 @@ void loop() {
   if (pressed) {
     timerWrite(pTimer, 0);                                                      // reset timer
     timerStart(pTimer);                                                         // start timer
-    Serial.printf("Starting %d second timer\n", sweepTime/1000000);
+    Serial.printf("Starting %d second timer\n", cSweepTime/1000000);
 
     pressed = false;                                                            // reset button flag
   }
 
+  int time = micros();
+
+  if (time % 1000000 == 0) {
+    Serial.printf("%d\n",timerReadMilis(pTimer));
+  }
+
   if (returnHome) {
-    Serial.printf("%d second timer up!\n", sweepTime/1000000);
+    Serial.printf("%d second timer up!\n", cSweepTime/1000000);
     timerStop(pTimer);
     returnHome = false;
   }
