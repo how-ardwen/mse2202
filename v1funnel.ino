@@ -81,7 +81,9 @@ const int cINChanA[] = {0,1};                                                  /
 const int cINPinB[] = {LEFT_MOTOR_B, RIGHT_MOTOR_B};                           // left and right motor B pins
 const int cINChanB[] = {2,3};                                                  // left and right motor B ledc channels
   // timer
-const int cSweepTime = 100;                                                    // time for robot to sweep ground area
+const int cTimer1ID = 0;                                                       // timer 1 (1 of 4 timers with IDs from 0 to 3)
+const int cSweepTime = 15000000;                                               // 15,000,000 ticks (15 seconds)
+const int cPrescaler = 80;                                                     // prescaler (80 MHz => 1 MHz)
 
 // objects
   // left and right encoder structures initialized with position 0
@@ -184,6 +186,13 @@ void setup() {
   pinMode(PUSH_BUTTON, INPUT_PULLUP);
   attachInterrupt(PUSH_BUTTON, buttonISR, FALLING);
 
+  // set up timer alarm
+  pTimer = timerBegin(0, cPrescaler, true);                                      // initialize esp32 timer1, with 1 microsecond clock, counting up
+  timerStop(pTimer);                                                             // stop the timer after initialization
+  timerAttachInterrupt(pTimer, &timerISR, true);                                 // attach timer interrupt to timer, edge enabled
+  timerAlarmWrite(pTimer, cSweepTime, false);                                    // set timer to go off after 15 seconds, no reload
+  timerAlarmEnable(pTimer);                                                      // enable timer alarm
+
   // declare previous time as 0 and current time as 0
   prevTime = 0;
   currTime = 0;
@@ -247,10 +256,10 @@ void loop() {
     twoSecondPassed = false;
     twoSecondCounter = 0;
 
-    // // set up timer alarm
-    // pTimer = timerBegin(1);                                                    // initialize timer with 1 Hz (aka 1 second clock)
-    // timerAttachInterrupt(pTimer, &timerISR);                                   // attach timer interrupt
-    // timerAlarm(pTimer, cSweepTime, false)                                      // initialize timer to go off after 100 ticks (100 seconds)
+    // activate timer alarm
+    timerWrite(pTimer, 0);                                                      // reset timer
+    timerStart(pTimer);                                                         // start timer
+    Serial.printf("Starting %d second timer\n", cSweepTime/1000000);
 
     // clear encoders
     clearEncoders();
@@ -300,7 +309,7 @@ void loop() {
         #ifdef DEBUG_COLOR
         Serial.printf("R: %d, G: %d, B: %d, C: %d\n", r, g, b, c);
         #endif
-        isGreen = g > (r + 20) && b > (g - 20) && b < (g - 10);
+        isGreen = (g) > (r + 20) && (b) > (g - 10) && b < (g);
         if (isGreen) {
           Serial.println("is Green!");
           ledcWrite(SERVO_SORT_CHAN, cSortGreen);
@@ -353,6 +362,7 @@ void loop() {
 
   // if alarm goes off to return home and deposit gems
   if (returnHome) {
+    timerStop(pTimer);
     robotStage = 3;                                                                 // set to stage 3
     stopMotors();                                                                   // stop motors
 
@@ -368,15 +378,16 @@ void loop() {
   // if in depositing stage
   if (robotStage == 3) {
     // search after waiting 1 second 
-    if (depositStage == 0 && oneSecondPassed) {
-      setMotor(1, driveSpeed/2, cINChanA[0], cINChanB[0]);                          // set left motor to drive forwards
-      setMotor(1, driveSpeed/2, cINChanA[1], cINChanB[1]);                          // set right motor to drive backwards
-      depositStage = 1;                                                             // set deposit stage to 1 (going forwards)
+    if (depositStage == 0) {
+      Serial.println("spinning");
+      setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);                          // set left motor to drive forwards
+      setMotor(1, driveSpeed, cINChanA[1], cINChanB[1]);                          // set right motor to drive backwards
+      depositStage = 1;                                                           // set deposit stage to 1 (going forwards)
     }
 
     // while spinning, search for IR signal every 5ms
     if (depositStage == 1 && msCounter % 5 == 0) {
-      digitalRead(IR_PIN);
+      // digitalRead(IR_PIN);
     }
   }
 
