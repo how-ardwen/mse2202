@@ -19,6 +19,7 @@ void clearEncoders();
 void ARDUINO_ISR_ATTR encoderISR(void* arg);
 void ARDUINO_ISR_ATTR buttonISR();
 void ARDUINO_ISR_ATTR timerISR();
+void clearBuffer();
 
 // structures
 struct Encoder {
@@ -127,6 +128,10 @@ bool prevGreen = false;                                                        /
 hw_timer_t* pTimer = NULL;                                                     // timer pointer
 bool returnHome = false;                                                       // determine whether it needs to return from
 
+//IR
+int irVal;
+int irCertainty;
+
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
@@ -136,24 +141,8 @@ void setup() {
   ledcSetup(WINDMILL_MOTOR_CHAN, cPWMFreq, cPWMRes);                             // set up channel with PWM freq and resolution
   // pinMode(WINDMILL_MOTOR_PIN, OUTPUT);                                           // set up motor pin output
 
-  // set up ultrasonic sensor
-  pinMode(USENSOR_TRIG, OUTPUT);
-  pinMode(USENSOR_ECHO, INPUT);
-
-  // set up tcs color sensor
-  Wire.setPins(SDA, SCL);                                                        // set up i2c pins
-  pinMode(TCSLED, OUTPUT);                                                       // set tcs LED as an output pin
-  digitalWrite(TCSLED, HIGH);
-  if (tcs.begin()) {
-    Serial.println("TCS connection found");
-    tcsFlag = true;
-  } else {
-    Serial.println("TCS connection not found, try again");
-    tcsFlag = false;
-  }
-
   // set up IR detector
-  // Serial2.begin(1200, SERIAL_8N1, IR_PIN);                                       // set up another serial input for IR detector at 1200 baud, 8 bits, no parity, 1 stop bit
+  Serial2.begin(1200, SERIAL_8N1, IR_PIN);                                       // set up another serial input for IR detector at 1200 baud, 8 bits, no parity, 1 stop bit
   // pinMode(IR_PIN, INPUT);
 
   // set up sorting servo pins
@@ -189,31 +178,50 @@ void setup() {
 }
 
 void loop() {
-  // every second if there is input on serial 2
-  if (pressed) {
-    if (numberPresses % 2 == 0) {
-      SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,255,0));                        // set pixel colors to green
-      SmartLEDs.setBrightness(15);                                                // set brightness of heartbeat LED
-      SmartLEDs.show();                                                           // send the updated pixel colors to the hardware
-    } else {
-      SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,0,255));                        // set pixel colors to green
-      SmartLEDs.setBrightness(15);                                                // set brightness of heartbeat LED
-      SmartLEDs.show();                                                           // send the updated pixel colors to the hardware
+  currTime = micros();
+  timeDiff = currTime - prevTime;
+  if (timeDiff >= 1000) {
+    msCounter++;
+    prevTime = currTime;
+
+    if (msCounter % 1000 == 0) {
+      oneSecondPassed = true;
     }
-    // Serial.printf("%d", Serial2.available());
-    // if (Serial2.available() > 0) {
-    //   char irVal = Serial2.read();
-    //   Serial.printf("IR Detector: %c\n", irVal);
-    // }
+  }
 
-    Serial.println("pressed");
+  // every 50 ms
+  if (msCounter % 500 == 0) {
+    if (Serial2.available() > 0) {
+      irVal = Serial2.read();
+      Serial.printf("IR Value: %d\n", irVal);
+      if (irVal > 50) {
+        irCertainty++;
+      }
+      Serial.printf("certainty: %d\n", irCertainty);
+    }
+    else {
+      irCertainty = 0;
+    }
+    clearBuffer();
+  }
 
-    pressed = false;
+  if (oneSecondPassed) {
+    // Serial.printf("buffer: %d\n", Serial2.available());
+    if (irCertainty >= 3) {
+      Serial.println("IR Beacon detected");
+    }
   }
 
   // clear time passed flags
   oneSecondPassed = false;
   twoSecondPassed = false;
+}
+
+void clearBuffer() {
+  int i;
+  while (Serial2.available() > 2) {
+    i = Serial2.read();
+  }
 }
 
 // button isr
