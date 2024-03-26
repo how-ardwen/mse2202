@@ -64,8 +64,8 @@ struct Encoder {
   // servos
 const int cDepositStore = 2000;                                                // deposit storing value (2000/16383 = 12.2%)
 const int cDepositDump = 1250;                                                 // deposit dumping value (1250/16383 = 7.6%)
-const int cSortGreen = 400;                                                    // sorting value if green
-const int cSortNotGreen = 625;                                                 // sorting value if not green
+const int cSortGreen = 300;                                                    // sorting value if green
+const int cSortNotGreen = 500;                                                 // sorting value if not green
 const int cSortMiddle = 500;                                                   // sorting value to test gem color
 const int cServoPWMfreq = 50;                                                  // servo frequency
 const int cServoPWMRes = 14;                                                   // servo resolution
@@ -82,7 +82,7 @@ const int cINPinB[] = {LEFT_MOTOR_B, RIGHT_MOTOR_B};                           /
 const int cINChanB[] = {2,3};                                                  // left and right motor B ledc channels
   // timer
 const int cTimer1ID = 0;                                                       // timer 1 (1 of 4 timers with IDs from 0 to 3)
-const int cSweepTime = 15000000;                                               // 15,000,000 ticks (15 seconds)
+const int cSweepTime = 45000000;                                               // 15,000,000 ticks (15 seconds)
 const int cPrescaler = 80;                                                     // prescaler (80 MHz => 1 MHz)
 
 // objects
@@ -109,6 +109,8 @@ unsigned long prevTime;                                                        /
 unsigned long currTime;                                                        // current time for arduino
 unsigned int timeDiff;                                                         // difference between current and previous time
 int msCounter;                                                                 // count for ms
+int fiftyMsCounter;                                                            // count for 50 ms
+bool fiftyMsPassed;                                                            // 50 millisecond timer
 int oneSecondCounter;                                                          // count for 1 second
 bool oneSecondPassed;                                                          // 1 second passed flag
 int twoSecondCounter;                                                          // count for 2 second
@@ -128,6 +130,8 @@ bool prevGreen = false;                                                        /
   // timer interrupt
 hw_timer_t* pTimer = NULL;                                                     // timer pointer
 bool returnHome = false;                                                       // determine whether it needs to return from
+  // deposit servo
+int depositServoPos;
 
 void setup() {
   // put your setup code here, to run once:
@@ -181,6 +185,7 @@ void setup() {
   ledcAttachPin(SERVO_DEPOSIT_PIN, SERVO_DEPOSIT_CHAN);                          // set up servo motor channel
   ledcSetup(SERVO_DEPOSIT_CHAN, cServoPWMfreq, cServoPWMRes);                    // set up channel with PWM freq and resolution
   ledcWrite(SERVO_DEPOSIT_CHAN, cDepositStore);                                  // move deposit bin to storage position
+  depositServoPos = cDepositStore;
 
   // set up push button
   pinMode(PUSH_BUTTON, INPUT_PULLUP);
@@ -221,6 +226,12 @@ void loop() {
 
     // increment ms counter
     msCounter = msCounter + 1;
+    
+    fiftyMsCounter++;
+    if (fiftyMsCounter >= 50) {
+      fiftyMsPassed = true;
+      fiftyMsCounter = 0;
+    }
 
     // increment 1 second timer
     oneSecondCounter = oneSecondCounter + timeDiff/1000;
@@ -248,7 +259,7 @@ void loop() {
   if (pressed && robotStage == 0) {
     Serial.println("Button pressed, moving to stage 1 and waiting two seconds");
     // set robot to stage 1
-    robotStage = 1;
+    robotStage = 5;
     // set drive to stage 1
     driveStage = 1;
 
@@ -267,13 +278,22 @@ void loop() {
     ledcWrite(SERVO_DEPOSIT_CHAN, cDepositDump);
     Serial.printf("Set servo to %d\n", ledcRead(SERVO_DEPOSIT_CHAN));
     
-    ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);                                 // turn on windmill motor
+    // ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);                                 // turn on windmill motor
 
     SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,255,0));                        // set pixel colors to green
     SmartLEDs.setBrightness(15);                                                // set brightness of heartbeat LED
     SmartLEDs.show();                                                           // send the updated pixel colors to the hardware
 
     pressed = false;                                                            // reset button flag
+  }
+
+  // deposit code
+  if (robotStage == 5) {
+    int split = (cDepositStore - cDepositDump)/10;
+    if (fiftyMsPassed && depositServoPos > cDepositDump) {
+      depositServoPos = depositServoPos - split;
+      ledcWrite(SERVO_DEPOSIT_CHAN, depositServoPos);
+    }
   }
 
   // if robot is in collection mode
@@ -295,8 +315,8 @@ void loop() {
       }
     }
 
-    // if tcs is on and 250ms have passed
-    if (msCounter % 250 == 0 && tcsFlag) {
+    // if tcs is on and 100ms have passed
+    if (msCounter % 100 == 0 && tcsFlag) {
       // if previous gem was green
       if (isGreen) {
         ledcWrite(SERVO_SORT_CHAN, cSortGreen);                                     // keep arm open
@@ -392,6 +412,7 @@ void loop() {
   }
 
   // clear time passed flags
+  fiftyMsPassed = false;
   oneSecondPassed = false;
   twoSecondPassed = false;
 }
