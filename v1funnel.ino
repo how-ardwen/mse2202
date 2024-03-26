@@ -153,7 +153,7 @@ void setup() {
   }
 
   // set up IR detector
-  Serial1.begin(1200, SERIAL_8N1, IR_PIN);                                       // set up another serial input for IR detector at 1200 baud, 8 bits, no parity, 1 stop bit
+  // Serial2.begin(1200, SERIAL_8N1, IR_PIN);                                       // set up another serial input for IR detector at 1200 baud, 8 bits, no parity, 1 stop bit
   // pinMode(IR_PIN, INPUT);
 
   // set up sorting servo pins
@@ -191,11 +191,22 @@ void setup() {
 void loop() {
   // every second if there is input on serial 2
   if (pressed) {
-    Serial.printf("%d", Serial1.available());
-    if (Serial1.available() > 0) {
-      char irVal = Serial1.read();
-      Serial.printf("IR Detector: %c\n", irVal);
+    if (numberPresses % 2 == 0) {
+      SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,255,0));                        // set pixel colors to green
+      SmartLEDs.setBrightness(15);                                                // set brightness of heartbeat LED
+      SmartLEDs.show();                                                           // send the updated pixel colors to the hardware
+    } else {
+      SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,0,255));                        // set pixel colors to green
+      SmartLEDs.setBrightness(15);                                                // set brightness of heartbeat LED
+      SmartLEDs.show();                                                           // send the updated pixel colors to the hardware
     }
+    // Serial.printf("%d", Serial2.available());
+    // if (Serial2.available() > 0) {
+    //   char irVal = Serial2.read();
+    //   Serial.printf("IR Detector: %c\n", irVal);
+    // }
+
+    Serial.println("pressed");
 
     pressed = false;
   }
