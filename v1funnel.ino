@@ -8,6 +8,7 @@ Howard Wen
 #include <Adafruit_NeoPixel.h>                                                 // LED library
 #include <Wire.h>                                                              // wire library for I2C
 #include "Adafruit_TCS34725.h"                                                 // color sensor library
+#include <WiFi.h>                                                              // wifi module
 
 // debug
 #define DEBUG_COLOR                                                            // debug color sensors
@@ -66,7 +67,7 @@ const int cDepositStore = 2000;                                                /
 const int cDepositDump = 1250;                                                 // deposit dumping value (1250/16383 = 7.6%)
 const int cSortGreen = 300;                                                    // sorting value if green
 const int cSortNotGreen = 500;                                                 // sorting value if not green
-const int cSortMiddle = 500;                                                   // sorting value to test gem color
+const int cSortMiddle = 320;                                                   // sorting value to test gem color
 const int cServoPWMfreq = 50;                                                  // servo frequency
 const int cServoPWMRes = 14;                                                   // servo resolution
   // motors
@@ -102,6 +103,7 @@ bool tcsFlag = false;
 int driveSpeed;                                                                // speed for motor
 int robotStage = 0;                                                            // tracks robot stage: 0 = idle, 1 = collecting, 2 = depositing
 int driveStage = 0;                                                            // tracks driving pattern, 0 = stop, 1 = forward, 2 = turning
+int sortStage = 0;                                                             // tracks sort stage, 0 is reading gem color, 1 is moving arm, 2 is waiting
 int depositStage = 0;                                                          // tracks deposit pattern, 0 = searching for IR, 1 = forward, 2 = turning around, 3 = depositing
 int turnNum = 0;                                                               // track number of turns
   // time variables
@@ -111,6 +113,8 @@ unsigned int timeDiff;                                                         /
 int msCounter;                                                                 // count for ms
 int fiftyMsCounter;                                                            // count for 50 ms
 bool fiftyMsPassed;                                                            // 50 millisecond timer
+int sortingTimeCounter;
+bool sortingTimePassed;
 int oneSecondCounter;                                                          // count for 1 second
 bool oneSecondPassed;                                                          // 1 second passed flag
 int twoSecondCounter;                                                          // count for 2 second
@@ -136,6 +140,10 @@ int depositServoPos;
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
+
+  // wifi setup
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP("kuromi", "mse2202!");
 
   // set up motors and encoders
   for (int k = 0; k < cNumMotors; k++) {
@@ -233,6 +241,12 @@ void loop() {
       fiftyMsCounter = 0;
     }
 
+    sortingTimeCounter++;
+    if (sortingTimeCounter >= 100) {
+      sortingTimePassed = true;
+      sortingTimeCounter = 0;
+    }
+
     // increment 1 second timer
     oneSecondCounter = oneSecondCounter + timeDiff/1000;
     // check to see if one second has passed
@@ -259,7 +273,7 @@ void loop() {
   if (pressed && robotStage == 0) {
     Serial.println("Button pressed, moving to stage 1 and waiting two seconds");
     // set robot to stage 1
-    robotStage = 5;
+    robotStage = 1;
     // set drive to stage 1
     driveStage = 1;
 
@@ -275,25 +289,14 @@ void loop() {
     // clear encoders
     clearEncoders();
 
-    ledcWrite(SERVO_DEPOSIT_CHAN, cDepositDump);
-    Serial.printf("Set servo to %d\n", ledcRead(SERVO_DEPOSIT_CHAN));
-    
-    // ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);                                 // turn on windmill motor
+    ledcWrite(SERVO_DEPOSIT_CHAN, cDepositStore);                               // set deposit servo to storage position
+    ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);                                 // turn on windmill motor
 
     SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,255,0));                        // set pixel colors to green
     SmartLEDs.setBrightness(15);                                                // set brightness of heartbeat LED
     SmartLEDs.show();                                                           // send the updated pixel colors to the hardware
 
     pressed = false;                                                            // reset button flag
-  }
-
-  // deposit code
-  if (robotStage == 5) {
-    int split = (cDepositStore - cDepositDump)/10;
-    if (fiftyMsPassed && depositServoPos > cDepositDump) {
-      depositServoPos = depositServoPos - split;
-      ledcWrite(SERVO_DEPOSIT_CHAN, depositServoPos);
-    }
   }
 
   // if robot is in collection mode
@@ -315,28 +318,32 @@ void loop() {
       }
     }
 
-    // if tcs is on and 100ms have passed
-    if (msCounter % 100 == 0 && tcsFlag) {
-      // if previous gem was green
+    // if tcs is on and 1 second has passed and arm is in the middle (gem in FOV of color sensor)
+    if (sortStage == 0 && oneSecondPassed && tcsFlag) {
+      uint16_t r, g, b, c;                                                        // RGBC values from TCS
+      tcs.getRawData(&r, &g, &b, &c);
+      #ifdef DEBUG_COLOR
+      Serial.printf("R: %d, G: %d, B: %d, C: %d\n", r, g, b, c);
+      #endif
+      isGreen = (g) > (r + 20) && (b) > (g - 10) && b < (g+10);
       if (isGreen) {
-        ledcWrite(SERVO_SORT_CHAN, cSortGreen);                                     // keep arm open
-        isGreen = false;                                                            // set isGreen to false
-      } 
-      // otherwise, test gem color
-      else {
-        uint16_t r, g, b, c;                                                        // RGBC values from TCS
-        tcs.getRawData(&r, &g, &b, &c);
-        #ifdef DEBUG_COLOR
-        Serial.printf("R: %d, G: %d, B: %d, C: %d\n", r, g, b, c);
-        #endif
-        isGreen = (g) > (r + 20) && (b) > (g - 10) && b < (g);
-        if (isGreen) {
-          Serial.println("is Green!");
-          ledcWrite(SERVO_SORT_CHAN, cSortGreen);
-        } else {
-          ledcWrite(SERVO_SORT_CHAN, cSortNotGreen);
-        }
+        Serial.println("is Green!");
+        ledcWrite(SERVO_SORT_CHAN, cSortGreen);
+      } else {
+        ledcWrite(SERVO_SORT_CHAN, cSortNotGreen);
       }
+      sortStage = 1;
+
+      // reset time counter
+      sortingTimePassed = false;
+      sortingTimeCounter = 0;
+    }
+
+    if (sortStage == 1 && sortingTimePassed) {
+      ledcWrite(SERVO_SORT_CHAN, cSortMiddle);
+      sortStage = 0;
+
+      
     }
 
     // wait two seconds before driving forwards
@@ -397,7 +404,7 @@ void loop() {
 
   // if in depositing stage
   if (robotStage == 3) {
-    // search after waiting 1 second 
+    // stage 0: stop 1 second before starting to spin 
     if (depositStage == 0) {
       Serial.println("spinning");
       setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);                          // set left motor to drive forwards
@@ -405,14 +412,60 @@ void loop() {
       depositStage = 1;                                                           // set deposit stage to 1 (going forwards)
     }
 
-    // while spinning, search for IR signal every 5ms
+    // stage 1: Every 5ms while spinning, search for IR signal
     if (depositStage == 1 && msCounter % 5 == 0) {
-      // digitalRead(IR_PIN);
+      // search for signal
+    }
+
+    // stage 2: once IR signal is found, start moving forwards and 
+    if (depositStage == 2) {
+      setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);                          // set left motor to drive forwards
+      setMotor(-1, driveSpeed, cINChanA[1], cINChanB[1]);                         // set right motor to drive forwards
+      depositStage = 3;
+    }
+
+    // TO DO
+    // stage 3: wait for ultrasonic detector to detect container 10 cm away
+    if (depositStage == 3) {
+      // ping ultrasonic every 50ms
+
+      // if distance matches
+      if (usDistance <= 10) {
+        // stop motors
+        // go to stage 4
+      }
+    }
+
+    // stage 4: spin around
+    if (depositStage == 4) {
+      setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);                          // set left motor to drive forwards
+      setMotor(1, driveSpeed, cINChanA[1], cINChanB[1]);                          // set right motor to drive backwards
+      depositStage = 5;                                                           // set deposit stage to 5
+      clearEncoders();
+    }
+
+    // stage 5: back in once left encoder has moved 500
+    if (depositStage == 5 && encoder[0].pos >= 500) {
+      setMotor(-1, driveSpeed, cINChanA[0], cINChanB[0]);                         // set left motor to drive backwards
+      setMotor(1, driveSpeed, cINChanA[1], cINChanB[1]);                          // set right motor to drive backwards
+      depositStage = 6;
+      clearEncoders();
+    }
+
+    // stage 6, slowly engage servo to deposit gems once backed in 15cm (negative left encoder position because moving backwards)
+    if (depositStage == 6 && encoder[0].pos <= -1500) {
+      stopMotors();
+      int split = (cDepositStore - cDepositDump)/10;
+      if (fiftyMsPassed && depositServoPos > cDepositDump) {
+        depositServoPos = depositServoPos - split;
+        ledcWrite(SERVO_DEPOSIT_CHAN, depositServoPos);
+      }
     }
   }
 
   // clear time passed flags
   fiftyMsPassed = false;
+  sortingTimePassed = false;
   oneSecondPassed = false;
   twoSecondPassed = false;
 }
