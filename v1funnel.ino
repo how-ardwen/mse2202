@@ -38,7 +38,8 @@ struct Encoder {
 #define ENCODER_LEFT_B      16                                                 // left encoder B signal is connected to pin 8 GPIO16 (J16)
 #define ENCODER_RIGHT_A     11                                                 // right encoder A signal is connected to pin 19 GPIO11 (J11)
 #define ENCODER_RIGHT_B     12                                                 // right encoder B signal is connected to pin 20 GPIO12 (J12)
-#define WINDMILL_MOTOR_PIN  8                                                  // windmill motor pin
+#define WINDMILL_MOTOR_PIN_A 8                                                 // windmill motor pin
+#define WINDMILL_MOTOR_PIN_B 8                                                 // windmill motor pin
 #define WINDMILL_MOTOR_CHAN 4                                                  // windmill motor channel
   // ultrasonic sensor
 #define USENSOR_TRIG        39                                                 // ultrasonic sensor trigger pin
@@ -65,9 +66,9 @@ struct Encoder {
   // servos
 const int cDepositStore = 2000;                                                // deposit storing value (2000/16383 = 12.2%)
 const int cDepositDump = 1250;                                                 // deposit dumping value (1250/16383 = 7.6%)
-const int cSortGreen = 300;                                                    // sorting value if green
-const int cSortNotGreen = 500;                                                 // sorting value if not green
-const int cSortMiddle = 320;                                                   // sorting value to test gem color
+const int cSortGreen = 380;                                                    // sorting value if green
+const int cSortNotGreen = 520;                                                 // sorting value if not green
+const int cSortMiddle = 450;                                                   // sorting value to test gem color
 const int cServoPWMfreq = 50;                                                  // servo frequency
 const int cServoPWMRes = 14;                                                   // servo resolution
   // motors
@@ -83,7 +84,7 @@ const int cINPinB[] = {LEFT_MOTOR_B, RIGHT_MOTOR_B};                           /
 const int cINChanB[] = {2,3};                                                  // left and right motor B ledc channels
   // timer
 const int cTimer1ID = 0;                                                       // timer 1 (1 of 4 timers with IDs from 0 to 3)
-const int cSweepTime = 45000000;                                               // 15,000,000 ticks (15 seconds)
+const int cSweepTime = 60000000;                                               // 15,000,000 ticks (15 seconds)
 const int cPrescaler = 80;                                                     // prescaler (80 MHz => 1 MHz)
 
 // objects
@@ -119,6 +120,8 @@ int oneSecondCounter;                                                          /
 bool oneSecondPassed;                                                          // 1 second passed flag
 int twoSecondCounter;                                                          // count for 2 second
 bool twoSecondPassed;                                                          // 2 second passed flag
+int fiveSecondCounter;                                                         // count for 5 second
+bool fiveSecondPassed;                                                         // 5 second passed flag
   // ultrasonic detector variables
 float usDuration;                                                              // ultrasonic sensor duration (us)
 float usDistance;                                                              // ultrasonic sensor distance (cm)
@@ -159,8 +162,15 @@ void setup() {
   }
 
   // set up windmill motor
-  ledcAttachPin(WINDMILL_MOTOR_PIN, WINDMILL_MOTOR_CHAN);                        // set up pin and channel
-  ledcSetup(WINDMILL_MOTOR_CHAN, cPWMFreq, cPWMRes);                             // set up channel with PWM freq and resolution
+  pinMode(8, OUTPUT);
+  pinMode(18, OUTPUT);
+  // ledcAttachPin(WINDMILL_MOTOR_PIN_A, WINDMILL_MOTOR_CHAN);                        // set up pin and channel
+  // ledcSetup(WINDMILL_MOTOR_CHAN, cPWMFreq, cPWMRes);                               // set up channel with PWM freq and resolution
+  // ledcAttachPin(WINDMILL_MOTOR_PIN_B, 7);                                          // set up pin and channel
+  // ledcSetup(7, cPWMFreq, cPWMRes);                                                 // set up channel with PWM freq and resolution
+
+  pinMode(WINDMILL_MOTOR_PIN_B, OUTPUT);
+  digitalWrite(WINDMILL_MOTOR_PIN_B, LOW);
   // pinMode(WINDMILL_MOTOR_PIN, OUTPUT);                                           // set up motor pin output
 
   // set up ultrasonic sensor
@@ -242,7 +252,7 @@ void loop() {
     }
 
     sortingTimeCounter++;
-    if (sortingTimeCounter >= 100) {
+    if (sortingTimeCounter >= 250) {
       sortingTimePassed = true;
       sortingTimeCounter = 0;
     }
@@ -267,6 +277,16 @@ void loop() {
       // reset counter
       twoSecondCounter = 0;
     }
+
+    // increment 3 second timer
+    fiveSecondCounter = fiveSecondCounter + timeDiff/1000;
+    if (fiveSecondCounter >= 3000) {
+      // Serial.println("2 seconds have passed");
+      // set two second passed flag to true
+      fiveSecondPassed = true;
+      // reset counter
+      fiveSecondCounter = 0;
+    }
   }
   
   // if push button is pressed and robot is currently idle
@@ -290,7 +310,10 @@ void loop() {
     clearEncoders();
 
     ledcWrite(SERVO_DEPOSIT_CHAN, cDepositStore);                               // set deposit servo to storage position
-    ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);                                 // turn on windmill motor
+    digitalWrite(8, HIGH);
+    digitalWrite(18, LOW);
+    // ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);                                 // turn on windmill motor
+    // ledcWrite(7, 0);                                 // turn on windmill motor
 
     SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,255,0));                        // set pixel colors to green
     SmartLEDs.setBrightness(15);                                                // set brightness of heartbeat LED
@@ -302,7 +325,7 @@ void loop() {
   // if robot is in collection mode
   if (robotStage == 1) {
     // if milisecond counter is a multiple of 500 (i.e. every 500ms, ping ultrasonic detector)
-    if (msCounter % 500 == 0) {
+    if (sortingTimePassed) {
       // ultrasonic code
       digitalWrite(USENSOR_TRIG, HIGH);
       delayMicroseconds(10);
@@ -316,16 +339,18 @@ void loop() {
         stopMotors();
         robotStage = 0;
       }
+
+      // sortingTimePassed = false;
     }
 
-    // if tcs is on and 1 second has passed and arm is in the middle (gem in FOV of color sensor)
-    if (sortStage == 0 && oneSecondPassed && tcsFlag) {
+    // if tcs is on and 5 second has passed and arm is in the middle (gem in FOV of color sensor)
+    if (sortStage == 0 && fiveSecondPassed && tcsFlag) {
       uint16_t r, g, b, c;                                                        // RGBC values from TCS
       tcs.getRawData(&r, &g, &b, &c);
       #ifdef DEBUG_COLOR
-      Serial.printf("R: %d, G: %d, B: %d, C: %d\n", r, g, b, c);
+      Serial.printf("R: %d, G: %d, B: %d, C: %d\n", r, g, b,  c);
       #endif
-      isGreen = (g) > (r + 20) && (b) > (g - 10) && b < (g+10);
+      isGreen = (g) > (r + 40) && (b) > (g - 10) && b < (g);
       if (isGreen) {
         Serial.println("is Green!");
         ledcWrite(SERVO_SORT_CHAN, cSortGreen);
@@ -342,18 +367,16 @@ void loop() {
     if (sortStage == 1 && sortingTimePassed) {
       ledcWrite(SERVO_SORT_CHAN, cSortMiddle);
       sortStage = 0;
-
-      
     }
 
     // wait two seconds before driving forwards
     if (twoSecondPassed && driveStage == 1) {
       Serial.printf("2 seconds have passed, now movingat speed %d\n", driveSpeed);
       // start the motors to go forwards
-      setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);
+      setMotor(1, driveSpeed+20, cINChanA[0], cINChanB[0]);
       setMotor(-1, driveSpeed, cINChanA[1], cINChanB[1]);
       // set stage
-      driveStage = 2;
+      // driveStage = 2;
     }
 
     // if driveStage == 2
@@ -405,11 +428,11 @@ void loop() {
   // if in depositing stage
   if (robotStage == 3) {
     // stage 0: stop 1 second before starting to spin 
-    if (depositStage == 0) {
+    if (oneSecondPassed && depositStage == 0) {
       Serial.println("spinning");
       setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);                          // set left motor to drive forwards
       setMotor(1, driveSpeed, cINChanA[1], cINChanB[1]);                          // set right motor to drive backwards
-      depositStage = 1;                                                           // set deposit stage to 1 (going forwards)
+      depositStage = 6;                                                           // set deposit stage to 1 (going forwards)
     }
 
     // stage 1: Every 5ms while spinning, search for IR signal
@@ -453,7 +476,8 @@ void loop() {
     }
 
     // stage 6, slowly engage servo to deposit gems once backed in 15cm (negative left encoder position because moving backwards)
-    if (depositStage == 6 && encoder[0].pos <= -1500) {
+    // if (depositStage == 6 && encoder[0].pos <= -1500) {
+    if (depositStage == 6) {
       stopMotors();
       int split = (cDepositStore - cDepositDump)/10;
       if (fiftyMsPassed && depositServoPos > cDepositDump) {
@@ -468,6 +492,7 @@ void loop() {
   sortingTimePassed = false;
   oneSecondPassed = false;
   twoSecondPassed = false;
+  fiveSecondPassed = false;
 }
 
 // motor function
