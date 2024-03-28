@@ -11,7 +11,7 @@
   - Physically add sensors to robot
   - Implement code to get robot to stop once sensors detect something _x_ distance away
 
-- [ ] IR Testing and implementation
+- [x] IR Testing and implementation
   - Test IR sensitivity and direction
   - Implement code to search for IR signal by spinning, before going towards it
 
@@ -23,7 +23,7 @@
   - Test and record pigmentation behavior
   - Get LED to shine whatever color the pigment sensor detects 
 
-- [ ] Finalize Sorting System
+- [x] Finalize Sorting System
   - Implement code to get sensors to trigger servo motor. During testing phase, if green, servo turns left, if not green, servo turns right
   - Finish implementing code into robot, refine servo motor timing as well
   - Implement code for final deposit into collection container
