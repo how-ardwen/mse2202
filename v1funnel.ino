@@ -165,15 +165,12 @@ void setup() {
   }
 
   // set up windmill motor
-  // pinMode(WINDMILL_MOTOR_PIN_A, OUTPUT);                                        // configure windmill motor A as output
+  pinMode(WINDMILL_MOTOR_PIN_A, OUTPUT);                                        // configure windmill motor A as output
   pinMode(WINDMILL_MOTOR_PIN_B, OUTPUT);                                           // configure windmill motor B as output
-  ledcAttachPin(WINDMILL_MOTOR_PIN_A, WINDMILL_MOTOR_CHAN);                        // set up pin and channel
-  ledcSetup(WINDMILL_MOTOR_CHAN, cPWMFreq, cPWMRes);                               // set up channel with PWM freq and resolution
+  // ledcAttachPin(WINDMILL_MOTOR_PIN_A, WINDMILL_MOTOR_CHAN);                        // set up pin and channel
+  // ledcSetup(WINDMILL_MOTOR_CHAN, cPWMFreq, cPWMRes);                               // set up channel with PWM freq and resolution
+  digitalWrite(WINDMILL_MOTOR_PIN_A, LOW);                                         // write motor as low to begin with
   digitalWrite(WINDMILL_MOTOR_PIN_B, LOW);                                         // write motor as low (essentially make sure it never goes backwards)
-
-  // ledcAttachPin(WINDMILL_MOTOR_PIN_B, 7);                                          // set up pin and channel
-  // ledcSetup(7, cPWMFreq, cPWMRes);                                                 // set up channel with PWM freq and resolution
-  // pinMode(WINDMILL_MOTOR_PIN, OUTPUT);                                           // set up motor pin output
 
   // set up ultrasonic sensor
   pinMode(USENSOR_TRIG, OUTPUT);
@@ -224,7 +221,7 @@ void setup() {
   prevTime = 0;
   currTime = 0;
   // declare drive speed
-  driveSpeed = 200;
+  driveSpeed = 220;
   // declare us mode
   usMode = 0;
 
@@ -306,11 +303,11 @@ void loop() {
     clearEncoders();                                                                        // clear encoders
 
     ledcWrite(SERVO_DEPOSIT_CHAN, cDepositStore);                                           // set deposit servo to storage position
-    ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);
-    // digitalWrite(WINDMILL_MOTOR_PIN_A, HIGH);                                               // set motor A forwards direction
+    digitalWrite(WINDMILL_MOTOR_PIN_A, HIGH);                                               // set motor A forwards direction
     digitalWrite(WINDMILL_MOTOR_PIN_B, LOW);                                                // make sure motor B is off
+    // ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);
 
-    // ledcWrite(7, 0);                                                                     // turn on windmill motor
+    // ledcWrite(7, 0);                                                                       // turn on windmill motor
 
     SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,255,0));                                    // set pixel colors to green
     SmartLEDs.setBrightness(15);                                                            // set brightness of heartbeat LED
@@ -448,21 +445,29 @@ void loop() {
         Serial.printf("IR Value: %c\n", irVal);
         if (irVal == 'U') {
           depositStage = 2;                                                                // set deposit stage to 2, which moves the bot forwards
+          clearEncoders();
+          SmartLEDs.setPixelColor(0,SmartLEDs.Color(25,130,130));                                   // set pixel colors to blue
+          SmartLEDs.setBrightness(15);                                                           // set brightness of heartbeat LED
+          SmartLEDs.show();                                                                      // send the updated pixel colors to the hardware
         }
         Serial.printf("certainty: %d\n", irCertainty);
       }
     }
 
+    if (depositStage == 2 && encoder[0].pos >= 1000) {
+      depositStage = 3;
+    }
+
     // stage 2: once IR signal is found, start moving forwards and 
-    if (depositStage == 2) {
+    if (depositStage == 3) {
       setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);                                  // set left motor to drive forwards
       setMotor(-1, driveSpeed, cINChanA[1], cINChanB[1]);                                 // set right motor to drive forwards
-      depositStage = 3;                                                                   // set to stage 3 (get close to deposit container)
+      depositStage = 4;                                                                   // set to stage 3 (get close to deposit container)
     }
 
     // TO DO
     // stage 3: wait for ultrasonic detector to detect container 10 cm away
-    if (depositStage == 3) {
+    if (depositStage == 4) {
       // ping ultrasonic every 50ms
       if (fiftyMsPassed) {
         // ultrasonic code
@@ -474,35 +479,35 @@ void loop() {
         // Serial.printf("Distance: %.2fcm\n", usDistance);
         
         // if distance is between 0.5 and 5 (can't be 0 because sometimes US doesn't read anything and will return 0)
-        if (usDistance > 0.5 && usDistance < 8) {
+        if (usDistance > 0.5 && usDistance < 15) {
           Serial.println("Robot has encountered obstacle, stopping");
           stopMotors();                                                                       // stop motors
           clearEncoders();                                                                    // clear encoders
-          depositStage = 4;                                                                   // set depositStage to 4
+          depositStage = 5;                                                                   // set depositStage to 4
         }
       }
     }
 
     // stage 4: spin around
-    if (depositStage == 4) {
+    if (depositStage == 5) {
       setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);                                  // set left motor to drive forwards
       setMotor(1, driveSpeed, cINChanA[1], cINChanB[1]);                                  // set right motor to drive backwards
-      depositStage = 5;                                                                   // set deposit stage to 5 (back into container)
+      depositStage = 6;                                                                   // set deposit stage to 5 (back into container)
     }
 
     // stage 5: stop windmill motor and back in once left encoder has moved 700
-    if (depositStage == 5 && encoder[1].pos >= 3600) {
+    if (depositStage == 6 && encoder[1].pos >= 3000) {
       clearEncoders();                                                                    // clear encoders
       setMotor(-1, driveSpeed, cINChanA[0], cINChanB[0]);                                 // set left motor to drive backwards
       setMotor(1, driveSpeed, cINChanA[1], cINChanB[1]);                                  // set right motor to drive backwards
 
-      // digitalWrite(WINDMILL_MOTOR_PIN_A, LOW);
-      ledcWrite(WINDMILL_MOTOR_CHAN, 0);
+      digitalWrite(WINDMILL_MOTOR_PIN_A, LOW);
+      // ledcWrite(WINDMILL_MOTOR_CHAN, 0);
 
-      depositStage = 6;                                                                   // set deposit stage to 6 (dump gems)
+      depositStage = 7;                                                                   // set deposit stage to 6 (dump gems)
     }
 
-    if (depositStage == 6 && encoder[0].pos <= -1500) {
+    if (depositStage == 7 && encoder[0].pos <= -1500) {
       stopMotors();                                                                       // stop motors
       int split = (cDepositStore - cDepositDump)/10;                                      // split servo motor movement into 10 chunks
       
@@ -514,12 +519,12 @@ void loop() {
 
       // once at final position
       if (depositServoPos <= cDepositDump) {
-        depositStage = 7;                                                                 // move to deposit stage 7
+        depositStage = 8;                                                                 // move to deposit stage 7
       }
     }
 
     // stage 7, indicate done and move to robotStage 0 again
-    if (depositStage == 7) {
+    if (depositStage == 8) {
       int split = (cDepositStore - cDepositDump)/10;                                      // split servo motor movement into 10 chunks
       
       // every 50ms move servo 1/10th of the way towards final position
@@ -530,7 +535,7 @@ void loop() {
 
       // once at final position
       if (depositServoPos >= cDepositStore) {
-        depositStage = 8;                                                                 // move to deposit stage 8
+        depositStage = 9;                                                                 // move to deposit stage 8
         // flash light for 5 seconds
         SmartLEDs.setPixelColor(0,SmartLEDs.Color(255,77,255));                                // set pixel colors to blue
         SmartLEDs.setBrightness(15);                                                           // set brightness of heartbeat LED
@@ -538,7 +543,7 @@ void loop() {
       }
     }
 
-    if (depositStage == 8) {
+    if (depositStage == 9) {
     }
   }
 
