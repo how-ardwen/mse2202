@@ -16,6 +16,7 @@ Howard Wen
 // function compile declarations
 void setMotor(int dir, int pwm, int chanA, int chanB);
 void stopMotors();
+void motorsForwards();
 void clearEncoders();
 void ARDUINO_ISR_ATTR encoderISR(void* arg);
 void ARDUINO_ISR_ATTR buttonISR();
@@ -39,7 +40,7 @@ struct Encoder {
 #define ENCODER_RIGHT_A     11                                                 // right encoder A signal is connected to pin 19 GPIO11 (J11)
 #define ENCODER_RIGHT_B     12                                                 // right encoder B signal is connected to pin 20 GPIO12 (J12)
 #define WINDMILL_MOTOR_PIN_A 8                                                 // windmill motor pin
-#define WINDMILL_MOTOR_PIN_B 8                                                 // windmill motor pin
+#define WINDMILL_MOTOR_PIN_B 18                                                 // windmill motor pin
 #define WINDMILL_MOTOR_CHAN  4                                                 // windmill motor channel
   // ultrasonic sensor
 #define USENSOR_TRIG        39                                                 // ultrasonic sensor trigger pin
@@ -65,7 +66,7 @@ struct Encoder {
 // constants
   // servos
 const int cDepositStore = 2000;                                                // deposit storing value (2000/16383 = 12.2%)
-const int cDepositDump = 1250;                                                 // deposit dumping value (1250/16383 = 7.6%)
+const int cDepositDump = 1100;                                                 // deposit dumping value (1250/16383 = 7.6%)
 const int cSortGreen = 380;                                                    // sorting value if green
 const int cSortNotGreen = 520;                                                 // sorting value if not green
 const int cSortMiddle = 450;                                                   // sorting value to test gem color
@@ -84,7 +85,7 @@ const int cINPinB[] = {LEFT_MOTOR_B, RIGHT_MOTOR_B};                           /
 const int cINChanB[] = {2,3};                                                  // left and right motor B ledc channels
   // timer
 const int cTimer1ID = 0;                                                       // timer 1 (1 of 4 timers with IDs from 0 to 3)
-const int cSweepTime = 60000000;                                               // 15,000,000 ticks (15 seconds)
+const int cSweepTime = 15000000;                                               // 60,000,000 ticks (15 seconds)
 const int cPrescaler = 80;                                                     // prescaler (80 MHz => 1 MHz)
 
 // objects
@@ -164,12 +165,12 @@ void setup() {
   }
 
   // set up windmill motor
-  pinMode(WINDMILL_MOTOR_PIN_A, OUTPUT);                                        // configure windmill motor A as output
-  pinMode(WINDMILL_MOTOR_PIN_B, OUTPUT);                                        // configure windmill motor B as output
-  digitalWrite(WINDMILL_MOTOR_PIN_B, LOW);                                      // write motor as low (essentially make sure it never goes backwards)
+  // pinMode(WINDMILL_MOTOR_PIN_A, OUTPUT);                                        // configure windmill motor A as output
+  pinMode(WINDMILL_MOTOR_PIN_B, OUTPUT);                                           // configure windmill motor B as output
+  ledcAttachPin(WINDMILL_MOTOR_PIN_A, WINDMILL_MOTOR_CHAN);                        // set up pin and channel
+  ledcSetup(WINDMILL_MOTOR_CHAN, cPWMFreq, cPWMRes);                               // set up channel with PWM freq and resolution
+  digitalWrite(WINDMILL_MOTOR_PIN_B, LOW);                                         // write motor as low (essentially make sure it never goes backwards)
 
-  // ledcAttachPin(WINDMILL_MOTOR_PIN_A, WINDMILL_MOTOR_CHAN);                        // set up pin and channel
-  // ledcSetup(WINDMILL_MOTOR_CHAN, cPWMFreq, cPWMRes);                               // set up channel with PWM freq and resolution
   // ledcAttachPin(WINDMILL_MOTOR_PIN_B, 7);                                          // set up pin and channel
   // ledcSetup(7, cPWMFreq, cPWMRes);                                                 // set up channel with PWM freq and resolution
   // pinMode(WINDMILL_MOTOR_PIN, OUTPUT);                                           // set up motor pin output
@@ -305,10 +306,10 @@ void loop() {
     clearEncoders();                                                                        // clear encoders
 
     ledcWrite(SERVO_DEPOSIT_CHAN, cDepositStore);                                           // set deposit servo to storage position
-    digitalWrite(WINDMILL_MOTOR_PIN_A, HIGH);                                               // set motor A forwards direction
+    ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);
+    // digitalWrite(WINDMILL_MOTOR_PIN_A, HIGH);                                               // set motor A forwards direction
     digitalWrite(WINDMILL_MOTOR_PIN_B, LOW);                                                // make sure motor B is off
 
-    // ledcWrite(WINDMILL_MOTOR_CHAN, driveSpeed);                                          // turn on windmill motor
     // ledcWrite(7, 0);                                                                     // turn on windmill motor
 
     SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,255,0));                                    // set pixel colors to green
@@ -320,8 +321,9 @@ void loop() {
 
   // if robot is in collection mode
   if (robotStage == 1) {
-    // if milisecond counter is a multiple of 500 (i.e. every 500ms, ping ultrasonic detector)
-    if (sortingTimePassed) {
+    // ULTRASONIC DETECTOR COLLISION PREVENTION
+    // ping ultrasonic detector every 250ms as long as robot is driving forwards
+    if (sortingTimePassed && driveStage == 2) {
       // ultrasonic code
       digitalWrite(USENSOR_TRIG, HIGH);                                                     // turn trigger on (send out ultrasonic waves)
       delayMicroseconds(10);                                                                // after 10 micro seconds
@@ -330,16 +332,17 @@ void loop() {
       usDistance = 0.017 * usDuration;                                                      // calculate distance using speed of sound
       // Serial.printf("Distance: %.2fcm\n", usDistance);
       
-      // if distance is between 0.5 and 5 (can't be 0 because sometimes US doesn't read anything and will return 0)
-      if (usDistance > 0.5 && usDistance < 5) {
-        Serial.println("Robot has encountered obstacle, stopping");
-        clearEncoders();                                                                    // clear encoders
-        stopMotors();                                                                       // stop motors
-        robotStage = 0;                                                                     // reset bot to stage 0
+      // if distance is between 0.5 and 15 (can't be 0 because sometimes US doesn't read anything and will return 0)
+      if (usDistance > 0.5 && usDistance < 15) {
+        Serial.println("Robot has encountered obstacle, turning");
+        // driveStage = 2;
+        stopMotors();
+        robotStage = 0;
+        encoder[0].pos = 5001;
       }
     }
 
-    // if tcs is on and 5 second has passed and arm is in the middle (gem in FOV of color sensor)
+    // if tcs is on and 3 second has passed and arm is in the middle (gem in FOV of color sensor)
     if (sortStage == 0 && threeSecondPassed && tcsFlag) {
       uint16_t r, g, b, c;                                                                  // RGBC values from TCS
       tcs.getRawData(&r, &g, &b, &c);                                                       // read values from TCS
@@ -369,16 +372,15 @@ void loop() {
 
     // wait two seconds before driving forwards
     if (twoSecondPassed && driveStage == 1) {
-      Serial.printf("2 seconds have passed, now movingat speed %d\n", driveSpeed);
+      Serial.printf("2 seconds have passed, now moving at speed %d\n", driveSpeed);
       // start the motors to go forwards
-      setMotor(1, driveSpeed+20, cINChanA[0], cINChanB[0]);
-      setMotor(-1, driveSpeed, cINChanA[1], cINChanB[1]);
+      motorsForwards();
       // set stage
       driveStage = 2;
     }
 
-    // if driveStage == 2 and robot has moved 5000 units
-    if (driveStage == 2 && encoder[0].pos >= 5000) {
+    // if driveStage == 2 and robot has moved 3000 units
+    if (driveStage == 2 && encoder[0].pos >= 3000) {
       // even turn number, turn right
       if (turnNum % 2 == 0) {
         setMotor(0,0, cINChanA[0], cINChanB[0]);                                           // stop right motor
@@ -395,13 +397,15 @@ void loop() {
       driveStage = 3;                                                                      // set drive stage to 3
     }
 
-    if (driveStage == 3 && (encoder[0].pos >= 1500 || encoder[1].pos <= -1500)) {
-      if (turnNum % 2 == 0) {
-        setMotor(-1, driveSpeed, cINChanA[1], cINChanB[1]);                                // start up left motor again
-      }
-      else {
-        setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);                                 // start up right motor again
-      }
+    if (driveStage == 3 && (encoder[0].pos >= 3000 || encoder[1].pos <= -3000)) {
+      // if (turnNum % 2 == 0) {
+      //   setMotor(-1, driveSpeed, cINChanA[1], cINChanB[1]);                                // start up left motor again
+      // }
+      // else {
+      //   setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);                                 // start up right motor again
+      // }
+      stopMotors();
+      motorsForwards();
 
       clearEncoders();                                                                     // clear encoders
       driveStage = 2;                                                                      // set drive stage to 2
@@ -421,6 +425,7 @@ void loop() {
     SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,0,255));                                   // set pixel colors to blue
     SmartLEDs.setBrightness(15);                                                           // set brightness of heartbeat LED
     SmartLEDs.show();                                                                      // send the updated pixel colors to the hardware
+    returnHome = false;                                                                    // clear timer alarm flag
   }
 
   // if in depositing stage
@@ -428,19 +433,20 @@ void loop() {
     // stage 0: stop 1 second before starting to spin 
     if (oneSecondPassed && depositStage == 0) {
       Serial.println("spinning");
-      setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);                                   // set left motor to drive forwards
-      setMotor(1, driveSpeed, cINChanA[1], cINChanB[1]);                                   // set right motor to drive backwards
-      // depositStage = 1;                                                                    // set deposit stage to 1 (going forwards)
-      depositStage = 6;                                                                    // set deposit stage to 6 dump the gems (for debugging purposes)
+      stopMotors();
+      setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);                                  // set left motor forwards
+      setMotor(1, driveSpeed, cINChanA[1], cINChanB[1]);                                  // set right motor backwards
+      depositStage = 1;                                                                    // set deposit stage to 1 (going forwards)
+      // depositStage = 6;                                                                    // set deposit stage to 6 dump the gems (for debugging purposes)
     }
 
-    // stage 1: Every 5ms while spinning, search for IR signal
+    // stage 1: Every 50ms while spinning, search for IR signal
     if (depositStage == 1 && fiftyMsPassed) {
       // search for signal
       if (Serial2.available() > 0) {
         irVal = Serial2.read();                                                            // read serial2 for ir values
-        Serial.printf("IR Value: %d\n", irVal);
-        if (irVal > 50) {
+        Serial.printf("IR Value: %c\n", irVal);
+        if (irVal == 'U') {
           depositStage = 2;                                                                // set deposit stage to 2, which moves the bot forwards
         }
         Serial.printf("certainty: %d\n", irCertainty);
@@ -484,17 +490,19 @@ void loop() {
       depositStage = 5;                                                                   // set deposit stage to 5 (back into container)
     }
 
-    // stage 5: back in once left encoder has moved 500
-    if (depositStage == 5 && encoder[0].pos >= 700) {
+    // stage 5: stop windmill motor and back in once left encoder has moved 700
+    if (depositStage == 5 && encoder[1].pos >= 3600) {
       clearEncoders();                                                                    // clear encoders
       setMotor(-1, driveSpeed, cINChanA[0], cINChanB[0]);                                 // set left motor to drive backwards
       setMotor(1, driveSpeed, cINChanA[1], cINChanB[1]);                                  // set right motor to drive backwards
+
+      // digitalWrite(WINDMILL_MOTOR_PIN_A, LOW);
+      ledcWrite(WINDMILL_MOTOR_CHAN, 0);
+
       depositStage = 6;                                                                   // set deposit stage to 6 (dump gems)
     }
 
-    // stage 6, slowly engage servo to deposit gems once backed in 15cm (negative left encoder position because moving backwards)
-    // if (depositStage == 6 && encoder[0].pos <= -1500) {
-    if (depositStage == 6) {
+    if (depositStage == 6 && encoder[0].pos <= -1500) {
       stopMotors();                                                                       // stop motors
       int split = (cDepositStore - cDepositDump)/10;                                      // split servo motor movement into 10 chunks
       
@@ -512,8 +520,25 @@ void loop() {
 
     // stage 7, indicate done and move to robotStage 0 again
     if (depositStage == 7) {
-      // flash light for 5 seconds
-      // reset completely
+      int split = (cDepositStore - cDepositDump)/10;                                      // split servo motor movement into 10 chunks
+      
+      // every 50ms move servo 1/10th of the way towards final position
+      if (fiftyMsPassed && depositServoPos < cDepositStore) {                             // as long as it hasn't reached final point yet, every 50 ms
+        depositServoPos = depositServoPos + split;                                        // update deposit servo position to new dumping position
+        ledcWrite(SERVO_DEPOSIT_CHAN, depositServoPos);                                   // set servo to updated position
+      }
+
+      // once at final position
+      if (depositServoPos >= cDepositStore) {
+        depositStage = 8;                                                                 // move to deposit stage 8
+        // flash light for 5 seconds
+        SmartLEDs.setPixelColor(0,SmartLEDs.Color(255,77,255));                                // set pixel colors to blue
+        SmartLEDs.setBrightness(15);                                                           // set brightness of heartbeat LED
+        SmartLEDs.show();                                                                      // send the updated pixel colors to the hardware
+      }
+    }
+
+    if (depositStage == 8) {
     }
   }
 
@@ -554,6 +579,11 @@ void stopMotors() {
   ledcWrite(cINChanB[0], 0);
   ledcWrite(cINChanA[1], 0);
   ledcWrite(cINChanB[1], 0);
+}
+
+void motorsForwards() {
+  setMotor(1, driveSpeed, cINChanA[0], cINChanB[0]);
+  setMotor(-1, driveSpeed, cINChanA[1], cINChanB[1]);
 }
 
 // clear encoders
