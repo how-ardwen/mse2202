@@ -455,7 +455,7 @@ void loop() {
     }
 
     if (depositStage == 2 && encoder[0].pos >= 1000) {
-      depositStage = 3;
+      depositStage = 3;                                                                   // go to stage 3
     }
 
     // stage 2: once IR signal is found, start moving forwards and 
