@@ -15,7 +15,7 @@
   - Test IR sensitivity and direction
   - Implement code to search for IR signal by spinning, before going towards it
 
-- [ ] Finalize Navigation System
+- [x] Finalize Navigation System
   - Get robot sweeping an area without colliding into anything and then returning to IR beacon once finished
   - Get containment raising arm spinning
 
